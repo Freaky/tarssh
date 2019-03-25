@@ -1,0 +1,10 @@
+[package]
+name = "tarssh"
+version = "0.1.0"
+authors = ["Thomas Hurst <tom@hur.st>"]
+edition = "2018"
+
+[dependencies]
+futures = "0.1.25"
+rand = "0.6.5"
+tokio = "0.1.18"
