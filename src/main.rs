@@ -28,6 +28,10 @@ fn main() -> Result<(), Box<std::error::Error>> {
                 sock.peer_addr().expect("peer address")
             );
 
+            // Minimise receive buffer size, slows clients and minimises resource use
+            let _ = sock.set_recv_buffer_size(1)
+                .map_err(|err| eprintln!("set_recv_buffer_size(): {:?}", err));
+
             let tarpit = loop_fn(sock, move |sock| {
                 Delay::new(Instant::now() + Duration::from_secs(thread_rng().gen_range(1, 10)))
                     .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "timer fail"))
