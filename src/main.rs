@@ -19,8 +19,8 @@ use rand::{thread_rng, Rng};
 
 static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 
-#[cfg(feature="capsicum")]
-use capsicum;
+#[cfg(feature="sandbox")]
+use rusty_sandbox;
 
 fn errx<M: AsRef<str>>(code: i32, message: M) {
     error!("{}", message.as_ref());
@@ -43,10 +43,10 @@ fn main() {
 
     info!("listen, addr: {}", addr);
 
-    #[cfg(feature="capsicum")]
+    #[cfg(feature="sandbox")]
     {
-        let _ = capsicum::enter();
-        info!("capsicum sandbox, enabled: {}", capsicum::sandboxed());
+        let sandboxed = rusty_sandbox::Sandbox::new().sandbox_this_process().is_ok();
+        info!("sandbox mode, enabled: {}", sandboxed);
     }
 
     let server = listener
