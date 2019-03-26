@@ -69,7 +69,7 @@ fn main() {
                 .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
 
             let tarpit = loop_fn(sock, move |sock| {
-                Delay::new(Instant::now() + Duration::from_secs(thread_rng().gen_range(1, 10)))
+                Delay::new(Instant::now() + Duration::from_secs(10))
                     .map_err(|err| {
                         error!("tokio timer, error: {}", err);
                         std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
