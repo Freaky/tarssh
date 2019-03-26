@@ -1,5 +1,6 @@
 use std::env;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use exitcode;
@@ -15,6 +16,8 @@ use tokio::net::TcpListener;
 use tokio::timer::Delay;
 
 use rand::{thread_rng, Rng};
+
+static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(feature="capsicum")]
 use capsicum;
@@ -56,7 +59,9 @@ fn main() {
                 .ok()
         })
         .for_each(|(sock, peer)| {
-            info!("connect, peer: {}", peer);
+            let connected = NUM_CLIENTS.fetch_add(1, Ordering::Relaxed);
+
+            info!("connect, peer: {}, clients: {}", peer, connected + 1);
 
             let start = Instant::now();
             let _ = sock
@@ -74,11 +79,13 @@ fn main() {
                     })
                     .map(|(sock, _)| Loop::Continue(sock))
                     .or_else(move |err| {
+                        let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
                         info!(
-                            "disconnect, peer: {}, duration: {:.2?}, error: {}",
+                            "disconnect, peer: {}, duration: {:.2?}, error: {}, clients: {}",
                             peer,
                             start.elapsed(),
-                            err
+                            err,
+                            connected - 1
                         );
                         Ok(Loop::Break(()))
                     })
