@@ -8,7 +8,7 @@ use exitcode;
 use env_logger;
 use log::{error, info, warn};
 
-use futures::future::{Loop, loop_fn};
+use futures::future::{loop_fn, Loop};
 use futures::stream::Stream;
 use futures::Future;
 
@@ -18,7 +18,7 @@ use tokio::timer::Delay;
 static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 static BANNER: &str = "bleep bloop\r\n";
 
-#[cfg(feature="sandbox")]
+#[cfg(feature = "sandbox")]
 use rusty_sandbox;
 
 fn errx<M: AsRef<str>>(code: i32, message: M) {
@@ -42,7 +42,7 @@ fn main() {
 
     info!("listen, addr: {}", addr);
 
-    #[cfg(feature="sandbox")]
+    #[cfg(feature = "sandbox")]
     {
         let sandboxed = rusty_sandbox::Sandbox::new().sandbox_this_process().is_ok();
         info!("sandbox mode, enabled: {}", sandboxed);
