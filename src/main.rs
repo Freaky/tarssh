@@ -67,6 +67,10 @@ fn main() {
                 .set_recv_buffer_size(1)
                 .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
 
+            let _ = sock
+                .set_send_buffer_size(64)
+                .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
+
             let tarpit = loop_fn(sock, move |sock| {
                 Delay::new(Instant::now() + Duration::from_secs(10))
                     .map_err(|err| {
