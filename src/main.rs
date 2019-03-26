@@ -16,6 +16,9 @@ use tokio::timer::Delay;
 
 use rand::{thread_rng, Rng};
 
+#[cfg(feature="capsicum")]
+use capsicum;
+
 fn errx<M: AsRef<str>>(code: i32, message: M) {
     error!("{}", message.as_ref());
     std::process::exit(code);
@@ -37,6 +40,12 @@ fn main() {
 
     info!("listen, addr: {}", addr);
 
+    #[cfg(feature="capsicum")]
+    {
+        let _ = capsicum::enter();
+        info!("capsicum sandbox, enabled: {}", capsicum::sandboxed());
+    }
+
     let server = listener
         .incoming()
         .map_err(|err| error!("accept(), error: {}", err))
@@ -47,7 +56,7 @@ fn main() {
                 .ok()
         })
         .for_each(|(sock, peer)| {
-            info!("connect, addr: {}", peer);
+            info!("connect, peer: {}", peer);
 
             let start = Instant::now();
             let _ = sock
