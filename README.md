@@ -10,7 +10,7 @@ sandboxing on FreeBSD (Capsicum), OpenBSD (Pledge) and macOS (Seatbelt).
 
 ```
 -% cargo build --release --features sandbox
--% RUST_LOG=info target/release/tarssh 0.0.0.0:22
+-% RUST_LOG=info target/release/tarssh 0.0.0.0:2222
 [2019-03-26T18:27:50Z INFO  tarssh] listen, addr: 0.0.0.0:2222
 [2019-03-26T18:27:50Z INFO  tarssh] sandbox mode, enabled: true
 [2019-03-26T18:27:57Z INFO  tarssh] connect, peer: 127.0.0.1:57263, clients: 1
