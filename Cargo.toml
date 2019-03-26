@@ -10,7 +10,6 @@ sandbox = ["rusty-sandbox"]
 
 [dependencies]
 futures = "0.1.25"
-rand = "0.6.5"
 tokio = "0.1.18"
 env_logger = "0.6.1"
 log = "0.4.6"

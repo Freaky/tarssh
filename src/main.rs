@@ -15,9 +15,8 @@ use futures::Future;
 use tokio::net::TcpListener;
 use tokio::timer::Delay;
 
-use rand::{thread_rng, Rng};
-
 static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
+static BANNER: &str = "bleep bloop\r\n";
 
 #[cfg(feature="sandbox")]
 use rusty_sandbox;
@@ -75,7 +74,7 @@ fn main() {
                         std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
                     })
                     .and_then(move |_| {
-                        tokio::io::write_all(sock, format!("{:x}\r\n", thread_rng().gen::<u32>()))
+                        tokio::io::write_all(sock, BANNER)
                     })
                     .map(|(sock, _)| Loop::Continue(sock))
                     .or_else(move |err| {
