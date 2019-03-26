@@ -77,10 +77,9 @@ fn main() {
                         error!("tokio timer, error: {}", err);
                         std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
                     })
-                    .and_then(move |_| {
-                        tokio::io::write_all(sock, BANNER)
-                    })
-                    .map(|(sock, _)| Loop::Continue(sock))
+                    .and_then(move |_| tokio::io::write_all(sock, BANNER))
+                    .and_then(|(sock, _)| tokio::io::flush(sock))
+                    .map(Loop::Continue)
                     .or_else(move |err| {
                         let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
                         info!(
