@@ -2,52 +2,80 @@ use std::env;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use futures::future::loop_fn;
+use exitcode;
+
+use env_logger;
+use log::{error, info, warn};
+
+use futures::future::{Loop, loop_fn};
 use futures::stream::Stream;
 use futures::Future;
-use rand::{thread_rng, Rng};
+
 use tokio::net::TcpListener;
-use tokio::prelude::*;
 use tokio::timer::Delay;
 
-fn main() -> Result<(), Box<std::error::Error>> {
+use rand::{thread_rng, Rng};
+
+fn errx<M: AsRef<str>>(code: i32, message: M) {
+    error!("{}", message.as_ref());
+    std::process::exit(code);
+}
+
+fn main() {
+    env_logger::init();
+
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "0.0.0.0:2222".to_string());
-    let addr = addr.parse::<SocketAddr>()?;
-    let listener = TcpListener::bind(&addr)?;
-    eprintln!("Listening on: {}", addr);
+        .unwrap_or_else(|| "0.0.0.0:2222".to_string())
+        .parse::<SocketAddr>()
+        .map_err(|_| errx(exitcode::USAGE, "Error parsing listen address"))
+        .expect("unreachable");
+
+    let listener = TcpListener::bind(&addr)
+        .map_err(|err| errx(exitcode::OSERR, format!("bind(), error: {}", err)))
+        .expect("unreachable");
+
+    info!("listen, addr: {}", addr);
 
     let server = listener
         .incoming()
-        .map_err(|e| eprintln!("accept(): {:?}", e))
-        .for_each(|sock| {
-            eprintln!(
-                "Connection: {} -> {}",
-                sock.local_addr().expect("local addr"),
-                sock.peer_addr().expect("peer address")
-            );
+        .map_err(|err| error!("accept(), error: {}", err))
+        .filter_map(|sock| {
+            sock.peer_addr()
+                .map_err(|err| error!("peer_addr(), error: {}", err))
+                .map(|peer| (sock, peer))
+                .ok()
+        })
+        .for_each(|(sock, peer)| {
+            info!("connect, addr: {}", peer);
 
-            // Minimise receive buffer size, slows clients and minimises resource use
-            let _ = sock.set_recv_buffer_size(1)
-                .map_err(|err| eprintln!("set_recv_buffer_size(): {:?}", err));
+            let start = Instant::now();
+            let _ = sock
+                .set_recv_buffer_size(1)
+                .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
 
             let tarpit = loop_fn(sock, move |sock| {
                 Delay::new(Instant::now() + Duration::from_secs(thread_rng().gen_range(1, 10)))
-                    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "timer fail"))
+                    .map_err(|err| {
+                        error!("tokio timer, error: {}", err);
+                        std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
+                    })
                     .and_then(move |_| {
                         tokio::io::write_all(sock, format!("{:x}\r\n", thread_rng().gen::<u32>()))
                     })
-                    .map(|(sock, _)| future::Loop::Continue(sock))
-                    .or_else(|err| {
-                        eprintln!("Connection closed {:?}", err);
-                        Ok(future::Loop::Break(()))
+                    .map(|(sock, _)| Loop::Continue(sock))
+                    .or_else(move |err| {
+                        info!(
+                            "disconnect, peer: {}, duration: {:.2?}, error: {}",
+                            peer,
+                            start.elapsed(),
+                            err
+                        );
+                        Ok(Loop::Break(()))
                     })
             });
             tokio::spawn(tarpit)
         });
 
     tokio::run(server);
-
-    Ok(())
 }
