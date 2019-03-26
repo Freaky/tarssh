@@ -5,12 +5,29 @@ A simple SSH tarpit, similar to [endlessh](https://nullprogram.com/blog/2019/03/
 Written in Rust using [Tokio] for async IO and [rusty-sandbox] for optional
 sandboxing on FreeBSD (Capsicum), OpenBSD (Pledge) and macOS (Seatbelt).
 
-
 ## Usage
 
 ```
 -% cargo build --release --features sandbox
--% RUST_LOG=info target/release/tarssh 0.0.0.0:2222
+-% target/release/tarssh --help
+tarssh 0.1.0
+Thomas Hurst <tom@hur.st>
+A SSH tarpit server
+
+USAGE:
+    tarssh [FLAGS] [OPTIONS]
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+    -v, --verbose    Verbose level (repeat for more verbosity)
+
+OPTIONS:
+    -d, --delay <delay>                Seconds between responses [default: 10]
+    -l, --listen <listen>              Listen address to bind to [default: 0.0.0.0:2222]
+    -c, --max-clients <max_clients>    Best-effort connection limit
+
+-% target/release/tarssh -v
 [2019-03-26T18:27:50Z INFO  tarssh] listen, addr: 0.0.0.0:2222
 [2019-03-26T18:27:50Z INFO  tarssh] sandbox mode, enabled: true
 [2019-03-26T18:27:57Z INFO  tarssh] connect, peer: 127.0.0.1:57263, clients: 1
