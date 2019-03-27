@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -12,6 +11,7 @@ use futures::stream::Stream;
 use futures::Future;
 
 use tokio::net::TcpListener;
+use tokio::runtime::Runtime;
 use tokio::timer::Delay;
 
 use structopt;
@@ -31,7 +31,7 @@ static BANNER: &[&str] = &[
     "n the street\r\n",
     "Say \"Hey, what",
     "'s your name?\"",
-    "\r\nAnd I say:\r\n"
+    "\r\nAnd I say:\r\n",
 ];
 
 #[derive(Debug, StructOpt)]
@@ -39,7 +39,7 @@ static BANNER: &[&str] = &[
 struct Config {
     /// Listen address to bind to
     #[structopt(short = "l", long = "listen", default_value = "0.0.0.0:2222")]
-    listen: SocketAddr,
+    listen: Vec<SocketAddr>,
     /// Best-effort connection limit
     #[structopt(short = "c", long = "max-clients")]
     max_clients: Option<u32>,
@@ -48,7 +48,7 @@ struct Config {
     delay: u32,
     /// Verbose level (repeat for more verbosity)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
-    verbose: u8
+    verbose: u8,
 }
 
 fn errx<M: AsRef<str>>(code: i32, message: M) {
@@ -69,11 +69,24 @@ fn main() {
 
     env_logger::from_env(Env::default().default_filter_or(log_level)).init();
 
-    let listener = TcpListener::bind(&opt.listen)
-        .map_err(|err| errx(71, format!("bind(), error: {}", err)))
+    let mut rt = Runtime::new()
+        .map_err(|err| errx(69, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
 
-    info!("listen, addr: {}", opt.listen);
+    let listeners: Vec<TcpListener> = opt
+        .listen
+        .iter()
+        .map(|addr| match TcpListener::bind(addr) {
+            Ok(listener) => {
+                info!("listen, addr: {}", addr);
+                listener
+            }
+            Err(err) => {
+                errx(71, format!("listen, addr: {}, error: {}", addr, err));
+                unreachable!();
+            }
+        })
+        .collect();
 
     #[cfg(feature = "sandbox")]
     {
@@ -81,62 +94,67 @@ fn main() {
         info!("sandbox mode, enabled: {}", sandboxed);
     }
 
-    let server = listener
-        .incoming()
-        .map_err(|err| error!("accept(), error: {}", err))
-        .filter_map(|sock| {
-            sock.peer_addr()
-                .map_err(|err| error!("peer_addr(), error: {}", err))
-                .map(|peer| (sock, peer))
-                .ok()
-        })
-        .filter(move |(_sock, peer)| {
-            let connected = NUM_CLIENTS.fetch_add(1, Ordering::Relaxed) + 1;
+    for listener in listeners.into_iter() {
+        let server = listener
+            .incoming()
+            .map_err(|err| error!("accept(), error: {}", err))
+            .filter_map(|sock| {
+                sock.peer_addr()
+                    .map_err(|err| error!("peer_addr(), error: {}", err))
+                    .map(|peer| (sock, peer))
+                    .ok()
+            })
+            .filter(move |(_sock, peer)| {
+                let connected = NUM_CLIENTS.fetch_add(1, Ordering::Relaxed) + 1;
 
-            if connected > max_clients {
-                NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
-                info!("reject, peer: {}, clients: {}", peer, connected);
-                false
-            } else {
-                info!("connect, peer: {}, clients: {}", peer, connected);
-                true
-            }
-        })
-        .for_each(move |(sock, peer)| {
-            let start = Instant::now();
-            let _ = sock
-                .set_recv_buffer_size(1)
-                .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
+                if connected > max_clients {
+                    NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
+                    info!("reject, peer: {}, clients: {}", peer, connected);
+                    false
+                } else {
+                    info!("connect, peer: {}, clients: {}", peer, connected);
+                    true
+                }
+            })
+            .for_each(move |(sock, peer)| {
+                let start = Instant::now();
+                let _ = sock
+                    .set_recv_buffer_size(1)
+                    .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
 
-            let _ = sock
-                .set_send_buffer_size(16)
-                .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
+                let _ = sock
+                    .set_send_buffer_size(16)
+                    .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
 
-            let tarpit = loop_fn((sock, 0), move |(sock, i)| {
-                Delay::new(Instant::now() + Duration::from_secs(delay))
-                    .map_err(|err| {
-                        error!("tokio timer, error: {}", err);
-                        std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
-                    })
-                    .and_then(move |_| {
-                        tokio::io::write_all(sock, BANNER[i % BANNER.len()])
-                    })
-                    .and_then(|(sock, _)| tokio::io::flush(sock))
-                    .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
-                    .or_else(move |err| {
-                        let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
-                        info!(
-                            "disconnect, peer: {}, duration: {:.2?}, error: {}, clients: {}",
-                            peer,
-                            start.elapsed(),
-                            err,
-                            connected
-                        );
-                        Ok(Loop::Break(()))
-                    })
+                let tarpit = loop_fn((sock, 0), move |(sock, i)| {
+                    Delay::new(Instant::now() + Duration::from_secs(delay))
+                        .map_err(|err| {
+                            error!("tokio timer, error: {}", err);
+                            std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
+                        })
+                        .and_then(move |_| tokio::io::write_all(sock, BANNER[i % BANNER.len()]))
+                        .and_then(|(sock, _)| tokio::io::flush(sock))
+                        .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
+                        .or_else(move |err| {
+                            let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
+                            info!(
+                                "disconnect, peer: {}, duration: {:.2?}, error: {}, clients: {}",
+                                peer,
+                                start.elapsed(),
+                                err,
+                                connected
+                            );
+                            Ok(Loop::Break(()))
+                        })
+                });
+                tokio::spawn(tarpit)
             });
-            tokio::spawn(tarpit)
-        });
 
-    tokio::run(server);
+        rt.spawn(server);
+    }
+
+    rt.shutdown_on_idle()
+        .wait()
+        .map_err(|err| errx(69, format!("tokio, error: {:?}", err)))
+        .expect("unreachable");
 }
