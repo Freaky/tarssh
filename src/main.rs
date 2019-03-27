@@ -124,13 +124,13 @@ fn main() {
                     .and_then(|(sock, _)| tokio::io::flush(sock))
                     .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
                     .or_else(move |err| {
-                        let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
+                        let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
                         info!(
                             "disconnect, peer: {}, duration: {:.2?}, error: {}, clients: {}",
                             peer,
                             start.elapsed(),
                             err,
-                            connected - 1
+                            connected
                         );
                         Ok(Loop::Break(()))
                     })
