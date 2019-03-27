@@ -17,6 +17,9 @@ use tokio::timer::Delay;
 use structopt;
 use structopt::StructOpt;
 
+#[cfg(feature = "sandbox")]
+use rusty_sandbox::Sandbox;
+
 static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 static BANNER: &[&str] = &[
     "My name is Yon",
@@ -30,9 +33,6 @@ static BANNER: &[&str] = &[
     "'s your name?\"",
     "\r\nAnd I say:\r\n"
 ];
-
-#[cfg(feature = "sandbox")]
-use rusty_sandbox;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "tarssh", about = "A SSH tarpit server")]
@@ -77,7 +77,7 @@ fn main() {
 
     #[cfg(feature = "sandbox")]
     {
-        let sandboxed = rusty_sandbox::Sandbox::new().sandbox_this_process().is_ok();
+        let sandboxed = Sandbox::new().sandbox_this_process().is_ok();
         info!("sandbox mode, enabled: {}", sandboxed);
     }
 
