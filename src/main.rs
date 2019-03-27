@@ -94,6 +94,15 @@ fn main() {
         info!("sandbox mode, enabled: {}", sandboxed);
     }
 
+    info!(
+        "start, servers: {}, max_clients: {}, delay: {}s",
+        listeners.len(),
+        opt.max_clients
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "unlimited".to_string()),
+        delay
+    );
+
     for listener in listeners.into_iter() {
         let server = listener
             .incoming()
