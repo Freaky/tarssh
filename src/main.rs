@@ -20,7 +20,18 @@ use structopt;
 use structopt::StructOpt;
 
 static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
-static BANNER: &str = "bleep bloop\r\n";
+static BANNER: &[&str] = &[
+    "My name is Yon",
+    " Yonson\r\nI liv",
+    "e in Wisconsin",
+    ".\r\nThere, the ",
+    "people I meet\r",
+    "\nAs I walk dow",
+    "n the street\r\n",
+    "Say \"Hey, what",
+    "'s your name?\"",
+    "\r\nAnd I say:\r\n"
+];
 
 #[cfg(feature = "sandbox")]
 use rusty_sandbox;
@@ -100,18 +111,20 @@ fn main() {
                 .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
 
             let _ = sock
-                .set_send_buffer_size(64)
+                .set_send_buffer_size(16)
                 .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
 
-            let tarpit = loop_fn(sock, move |sock| {
+            let tarpit = loop_fn((sock, 0), move |(sock, i)| {
                 Delay::new(Instant::now() + Duration::from_secs(delay))
                     .map_err(|err| {
                         error!("tokio timer, error: {}", err);
                         std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
                     })
-                    .and_then(move |_| tokio::io::write_all(sock, BANNER))
+                    .and_then(move |_| {
+                        tokio::io::write_all(sock, BANNER[i % BANNER.len()])
+                    })
                     .and_then(|(sock, _)| tokio::io::flush(sock))
-                    .map(Loop::Continue)
+                    .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
                     .or_else(move |err| {
                         let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
                         info!(
