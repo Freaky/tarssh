@@ -37,7 +37,7 @@ static BANNER: &[&str] = &[
 #[derive(Debug, StructOpt)]
 #[structopt(name = "tarssh", about = "A SSH tarpit server")]
 struct Config {
-    /// Listen address to bind to
+    /// Listen address(es) to bind to
     #[structopt(short = "l", long = "listen", default_value = "0.0.0.0:2222")]
     listen: Vec<SocketAddr>,
     /// Best-effort connection limit
