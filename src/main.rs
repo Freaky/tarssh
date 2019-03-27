@@ -2,8 +2,8 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use env_logger;
-use env_logger::Env;
+use env_logger::Builder;
+use log::LevelFilter;
 use log::{error, info, warn};
 
 use futures::future::{loop_fn, Loop};
@@ -49,6 +49,9 @@ struct Config {
     /// Verbose level (repeat for more verbosity)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
+    /// Disable timestamps in logs
+    #[structopt(long = "disable-timestamps")]
+    disable_timestamps: bool
 }
 
 fn errx<M: AsRef<str>>(code: i32, message: M) {
@@ -60,14 +63,18 @@ fn main() {
     let opt = Config::from_args();
 
     let log_level = match opt.verbose {
-        0 => "none",
-        1 => "info",
-        _ => "debug",
+        0 => LevelFilter::Off,
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
     };
     let max_clients = opt.max_clients.unwrap_or(u32::max_value()) as usize;
     let delay = u64::from(opt.delay);
 
-    env_logger::from_env(Env::default().default_filter_or(log_level)).init();
+    Builder::from_default_env()
+        .filter(None, log_level)
+        .default_format_timestamp(!opt.disable_timestamps)
+        .init();
 
     let mut rt = Runtime::new()
         .map_err(|err| errx(69, format!("tokio, error: {:?}", err)))
