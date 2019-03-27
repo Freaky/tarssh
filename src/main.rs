@@ -3,8 +3,6 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use exitcode;
-
 use env_logger;
 use env_logger::Env;
 use log::{error, info, warn};
@@ -72,7 +70,7 @@ fn main() {
     env_logger::from_env(Env::default().default_filter_or(log_level)).init();
 
     let listener = TcpListener::bind(&opt.listen)
-        .map_err(|err| errx(exitcode::OSERR, format!("bind(), error: {}", err)))
+        .map_err(|err| errx(71, format!("bind(), error: {}", err)))
         .expect("unreachable");
 
     info!("listen, addr: {}", opt.listen);
