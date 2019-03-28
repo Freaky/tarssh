@@ -17,8 +17,11 @@ use tokio::timer::Delay;
 use structopt;
 use structopt::StructOpt;
 
-#[cfg(feature = "sandbox")]
+#[cfg(all(unix, feature = "sandbox"))]
 use rusty_sandbox::Sandbox;
+
+#[cfg(all(unix, feature = "drop_privs"))]
+use privdrop::PrivDrop;
 
 static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 static BANNER: &[&str] = &[
@@ -95,10 +98,28 @@ fn main() {
         })
         .collect();
 
-    #[cfg(feature = "sandbox")]
+    #[cfg(all(unix, feature = "drop_privs"))]
+    {
+        use nix::unistd;
+
+        if unistd::geteuid().is_root() {
+            PrivDrop::default()
+                .chroot("/var/empty")
+                .user("nobody")
+                .and_then(|pd| pd.group("nobody"))
+                .and_then(|pd| pd.apply())
+                .unwrap_or_else(|err| errx(71, format!("privdrop, error: {}", err)));
+
+            info!("privdrop, enabled: true");
+        } else {
+            info!("privdrop, enabled: false");
+        }
+    }
+
+    #[cfg(all(unix, feature = "sandbox"))]
     {
         let sandboxed = Sandbox::new().sandbox_this_process().is_ok();
-        info!("sandbox mode, enabled: {}", sandboxed);
+        info!("sandbox, enabled: {}", sandboxed);
     }
 
     info!(
