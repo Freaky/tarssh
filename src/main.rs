@@ -176,15 +176,27 @@ fn main() {
                         .and_then(move |_| {
                             tokio::io::write_all(sock, BANNER[i % BANNER.len()])
                                 .timeout(Duration::from_secs(timeout))
-                                .map_err(|_| {
-                                    std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                .map_err(|err| {
+                                    if err.is_elapsed() {
+                                        std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                    } else {
+                                        err.into_inner().unwrap_or_else(|| {
+                                            std::io::Error::new(std::io::ErrorKind::Other, "timeout broke")
+                                        })
+                                    }
                                 })
                         })
                         .and_then(move |(sock, _)| {
                             tokio::io::flush(sock)
                                 .timeout(Duration::from_secs(timeout))
-                                .map_err(|_err| {
-                                    std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                .map_err(|err| {
+                                    if err.is_elapsed() {
+                                        std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                    } else {
+                                        err.into_inner().unwrap_or_else(|| {
+                                            std::io::Error::new(std::io::ErrorKind::Other, "timeout broke")
+                                        })
+                                    }
                                 })
                         })
                         .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
