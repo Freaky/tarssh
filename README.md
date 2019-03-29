@@ -27,14 +27,16 @@ FLAGS:
 OPTIONS:
     -d, --delay <delay>                Seconds between responses [default: 10]
     -l, --listen <listen>...           Listen address(es) to bind to [default: 0.0.0.0:2222]
-    -c, --max-clients <max_clients>    Best-effort connection limit
+    -c, --max-clients <max_clients>    Best-effort connection limit [default: 4096]
+    -t, --timeout <timeout>            Socket write timeout [default: 30]
+
 
 -% target/release/tarssh -v --disable-timestamps -l 0.0.0.0:2222 \[::]:2222
 [INFO  tarssh] listen, addr: 0.0.0.0:2222
 [INFO  tarssh] listen, addr: [::]:2222
 [INFO  tarssh] privdrop, enabled: false
 [INFO  tarssh] sandbox, enabled: true
-[INFO  tarssh] start, servers: 2, max_clients: unlimited, delay: 10s
+[INFO  tarssh] start, servers: 2, max_clients: 4096, delay: 10s, timeout: 30s
 [INFO  tarssh] connect, peer: 127.0.0.1:37485, clients: 1
 [INFO  tarssh] connect, peer: [::1]:37494, clients: 2
 [INFO  tarssh] disconnect, peer: 127.0.0.1:37485, duration: 20.19s, error: Broken pipe (os error 32), clients: 1
