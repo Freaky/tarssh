@@ -45,8 +45,8 @@ struct Config {
     #[structopt(short = "l", long = "listen", default_value = "0.0.0.0:2222")]
     listen: Vec<SocketAddr>,
     /// Best-effort connection limit
-    #[structopt(short = "c", long = "max-clients")]
-    max_clients: Option<u32>,
+    #[structopt(short = "c", long = "max-clients", default_value = "4096")]
+    max_clients: u32,
     /// Seconds between responses
     #[structopt(short = "d", long = "delay", default_value = "10")]
     delay: u64,
@@ -75,7 +75,7 @@ fn main() {
         2 => LevelFilter::Debug,
         _ => LevelFilter::Trace,
     };
-    let max_clients = opt.max_clients.unwrap_or(u32::max_value()) as usize;
+    let max_clients = opt.max_clients as usize;
     let delay = opt.delay;
     let timeout = opt.timeout;
 
@@ -130,9 +130,7 @@ fn main() {
     info!(
         "start, servers: {}, max_clients: {}, delay: {}s, timeout: {}s",
         listeners.len(),
-        opt.max_clients
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| "unlimited".to_string()),
+        opt.max_clients,
         delay,
         timeout
     );
