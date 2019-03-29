@@ -1,0 +1,40 @@
+#!/bin/sh
+#
+# PROVIDE: tarssh
+# REQUIRE: networking
+# KEYWORD:
+
+. /etc/rc.subr
+
+name="tarssh"
+rcvar="tarssh_enable"
+
+load_rc_config $name
+: ${tarssh_enable:="NO"}
+: ${tarssh_log:="syslog"}
+: ${tarssh_listen:="0.0.0.0:22 \[::]:22"}
+: ${tarssh_timeout:="30"}
+: ${tarssh_delay:="10"}
+: ${tarssh_max_clients:="4096"}
+: ${tarssh_options:="-v -l ${tarssh_listen} -t ${tarssh_timeout} -d ${tarssh_delay} -c ${tarssh_max_clients}"}
+
+case "$tarssh_log" in
+	syslog)
+		log_flag="-T ${name}"
+		tarssh_options="${tarssh_options} --disable-timestamps"
+		;;
+	/*)
+		log_flag="-o ${tarssh_log}"
+		;;
+	*)
+		log_flag="-f"
+		;;
+esac
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/local/bin/tarssh"
+command="/usr/sbin/daemon"
+command_args="-p ${pidfile} -c ${log_flag} ${procname} ${tarssh_options}"
+
+run_rc_command "$1"
+
