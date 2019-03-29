@@ -11,6 +11,7 @@ use futures::stream::Stream;
 use futures::Future;
 
 use tokio::net::TcpListener;
+use tokio::prelude::FutureExt;
 use tokio::runtime::Runtime;
 use tokio::timer::Delay;
 
@@ -48,13 +49,16 @@ struct Config {
     max_clients: Option<u32>,
     /// Seconds between responses
     #[structopt(short = "d", long = "delay", default_value = "10")]
-    delay: u32,
+    delay: u64,
+    /// Socket write timeout
+    #[structopt(short = "t", long = "timeout", default_value = "30")]
+    timeout: u64,
     /// Verbose level (repeat for more verbosity)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
     /// Disable timestamps in logs
     #[structopt(long = "disable-timestamps")]
-    disable_timestamps: bool
+    disable_timestamps: bool,
 }
 
 fn errx<M: AsRef<str>>(code: i32, message: M) {
@@ -72,7 +76,8 @@ fn main() {
         _ => LevelFilter::Trace,
     };
     let max_clients = opt.max_clients.unwrap_or(u32::max_value()) as usize;
-    let delay = u64::from(opt.delay);
+    let delay = opt.delay;
+    let timeout = opt.timeout;
 
     Builder::from_default_env()
         .filter(None, log_level)
@@ -123,12 +128,13 @@ fn main() {
     }
 
     info!(
-        "start, servers: {}, max_clients: {}, delay: {}s",
+        "start, servers: {}, max_clients: {}, delay: {}s, timeout: {}s",
         listeners.len(),
         opt.max_clients
             .map(|c| c.to_string())
             .unwrap_or_else(|| "unlimited".to_string()),
-        delay
+        delay,
+        timeout
     );
 
     for listener in listeners.into_iter() {
@@ -169,8 +175,20 @@ fn main() {
                             error!("tokio timer, error: {}", err);
                             std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
                         })
-                        .and_then(move |_| tokio::io::write_all(sock, BANNER[i % BANNER.len()]))
-                        .and_then(|(sock, _)| tokio::io::flush(sock))
+                        .and_then(move |_| {
+                            tokio::io::write_all(sock, BANNER[i % BANNER.len()])
+                                .timeout(Duration::from_secs(timeout))
+                                .map_err(|_| {
+                                    std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                })
+                        })
+                        .and_then(move |(sock, _)| {
+                            tokio::io::flush(sock)
+                                .timeout(Duration::from_secs(timeout))
+                                .map_err(|_err| {
+                                    std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                })
+                        })
                         .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
                         .or_else(move |err| {
                             let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
