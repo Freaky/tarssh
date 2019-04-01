@@ -111,7 +111,7 @@ fn main() {
             PrivDrop::default()
                 .chroot("/var/empty")
                 .user("nobody")
-                .and_then(|pd| pd.group("nobody"))
+                .and_then(|pd| pd.group("nogroup"))
                 .and_then(|pd| pd.apply())
                 .unwrap_or_else(|err| errx(71, format!("privdrop, error: {}", err)));
 
