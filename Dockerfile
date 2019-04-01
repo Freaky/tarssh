@@ -8,4 +8,4 @@ RUN mkdir /var/empty
 RUN chown nobody:nogroup /var/empty
 RUN chmod u=rx,g=rx,o-rwx /var/empty
 
-CMD ["tarssh"]
+CMD ["tarssh","-v"]
