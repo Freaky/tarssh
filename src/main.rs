@@ -15,6 +15,8 @@ use tokio::prelude::FutureExt;
 use tokio::runtime::Runtime;
 use tokio::timer::Delay;
 
+use tk_listen::ListenExt;
+
 use structopt;
 use structopt::StructOpt;
 
@@ -175,7 +177,7 @@ fn main() {
     for listener in listeners.into_iter() {
         let server = listener
             .incoming()
-            .map_err(|err| error!("accept(), error: {}", err))
+            .sleep_on_error(Duration::from_millis(100))
             .filter_map(|sock| {
                 sock.peer_addr()
                     .map_err(|err| error!("peer_addr(), error: {}", err))
