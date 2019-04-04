@@ -16,9 +16,9 @@ load_rc_config $name
 : ${tarssh_timeout:="30"}
 : ${tarssh_delay:="10"}
 : ${tarssh_max_clients:="4096"}
-: ${tarssh_user:="nobody"}
-: ${tarssh_chroot:="/var/empty"}
-: ${tarssh_options:="-v -l ${tarssh_listen} -t ${tarssh_timeout} -d ${tarssh_delay} -c ${tarssh_max_clients} -u ${tarssh_user} --chroot ${tarssh_chroot}"}
+: ${tarssh_daemon_user:="nobody"}
+: ${tarssh_daemon_chroot:="/var/empty"}
+: ${tarssh_options:="-v -l ${tarssh_listen} -t ${tarssh_timeout} -d ${tarssh_delay} -c ${tarssh_max_clients} -u ${tarssh_daemon_user} --chroot ${tarssh_daemon_chroot}"}
 
 case "$tarssh_log" in
 	syslog)
