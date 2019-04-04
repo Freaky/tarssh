@@ -24,6 +24,12 @@ use rusty_sandbox::Sandbox;
 #[cfg(all(unix, feature = "drop_privs"))]
 use privdrop::PrivDrop;
 
+#[cfg(all(unix, feature = "drop_privs"))]
+use std::path::PathBuf;
+
+#[cfg(all(unix, feature = "drop_privs"))]
+use std::ffi::OsString;
+
 static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 static BANNER: &[&str] = &[
     "My name is Yon",
@@ -59,6 +65,24 @@ struct Config {
     /// Disable timestamps in logs
     #[structopt(long = "disable-timestamps")]
     disable_timestamps: bool,
+    #[cfg(all(unix, feature = "drop_privs"))]
+    #[structopt(flatten)]
+    #[cfg(all(unix, feature = "drop_privs"))]
+    privdrop: PrivDropConfig,
+}
+
+#[cfg(all(unix, feature = "drop_privs"))]
+#[derive(Debug, StructOpt)]
+struct PrivDropConfig {
+    /// Run as this user and their primary group
+    #[structopt(short = "u", long = "user", parse(from_os_str))]
+    user: Option<OsString>,
+    /// Run as this group
+    #[structopt(short = "g", long = "group", parse(from_os_str))]
+    group: Option<OsString>,
+    /// Chroot to this directory
+    #[structopt(long = "chroot", parse(from_os_str))]
+    chroot: Option<PathBuf>,
 }
 
 fn errx<M: AsRef<str>>(code: i32, message: M) {
@@ -105,14 +129,27 @@ fn main() {
 
     #[cfg(all(unix, feature = "drop_privs"))]
     {
-        use nix::unistd;
+        if opt.privdrop.user.is_some()
+            || opt.privdrop.group.is_some()
+            || opt.privdrop.chroot.is_some()
+        {
+            let mut pd = PrivDrop::default();
+            if let Some(path) = opt.privdrop.chroot {
+                info!("privdrop, chroot: {}", path.display());
+                pd = pd.chroot(path);
+            }
 
-        if unistd::geteuid().is_root() {
-            PrivDrop::default()
-                .chroot("/var/empty")
-                .user("nobody")
-                .and_then(|pd| pd.group("nogroup"))
-                .and_then(|pd| pd.apply())
+            if let Some(user) = opt.privdrop.user {
+                info!("privdrop, user: {}", user.to_string_lossy());
+                pd = pd.user(user);
+            }
+
+            if let Some(group) = opt.privdrop.group {
+                info!("privdrop, group: {}", group.to_string_lossy());
+                pd = pd.group(group);
+            }
+
+            pd.apply()
                 .unwrap_or_else(|err| errx(71, format!("privdrop, error: {}", err)));
 
             info!("privdrop, enabled: true");
@@ -178,10 +215,16 @@ fn main() {
                                 .timeout(Duration::from_secs(timeout))
                                 .map_err(|err| {
                                     if err.is_elapsed() {
-                                        std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "socket timeout",
+                                        )
                                     } else {
                                         err.into_inner().unwrap_or_else(|| {
-                                            std::io::Error::new(std::io::ErrorKind::Other, "timeout broke")
+                                            std::io::Error::new(
+                                                std::io::ErrorKind::Other,
+                                                "timeout broke",
+                                            )
                                         })
                                     }
                                 })
@@ -191,10 +234,16 @@ fn main() {
                                 .timeout(Duration::from_secs(timeout))
                                 .map_err(|err| {
                                     if err.is_elapsed() {
-                                        std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "socket timeout",
+                                        )
                                     } else {
                                         err.into_inner().unwrap_or_else(|| {
-                                            std::io::Error::new(std::io::ErrorKind::Other, "timeout broke")
+                                            std::io::Error::new(
+                                                std::io::ErrorKind::Other,
+                                                "timeout broke",
+                                            )
                                         })
                                     }
                                 })
