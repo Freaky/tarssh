@@ -25,10 +25,13 @@ FLAGS:
     -v, --verbose               Verbose level (repeat for more verbosity)
 
 OPTIONS:
+        --chroot <chroot>              Chroot to this directory
     -d, --delay <delay>                Seconds between responses [default: 10]
+    -g, --group <group>                Run as this group
     -l, --listen <listen>...           Listen address(es) to bind to [default: 0.0.0.0:2222]
     -c, --max-clients <max_clients>    Best-effort connection limit [default: 4096]
     -t, --timeout <timeout>            Socket write timeout [default: 30]
+    -u, --user <user>                  Run as this user and their primary group
 
 
 -% target/release/tarssh -v --disable-timestamps -l 0.0.0.0:2222 \[::]:2222
