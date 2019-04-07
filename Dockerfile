@@ -1,11 +1,26 @@
-FROM rust:1.31
+FROM rust:1.33-stretch as build
 
 WORKDIR /usr/src/tarssh
+
+# Make a blank project with our deps for Docker to cache.
+# We skip rusty-sandbox because it does nothing useful on Linux.
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src \
+  && echo 'fn main() { }' >src/main.rs \
+  && cargo build --release --no-default-features --features drop_privs \
+  && rm -r target/release/.fingerprint/tarssh-*
+
+# Copy in the full project and build
 COPY . .
+RUN cargo build --release --no-default-features --features drop_privs
 
-RUN cargo install --path .
-RUN mkdir /var/empty
-RUN chown nobody:nogroup /var/empty
-RUN chmod u=rx,g=rx,o-rwx /var/empty
+# Use a fairly minimal enviroment for deployment
+FROM debian:stretch-slim
 
-CMD ["tarssh","-v"]
+RUN mkdir /var/empty && chmod 0555 /var/empty
+COPY --from=build /usr/src/tarssh/target/release/tarssh /opt/tarssh
+
+EXPOSE 22
+
+ENTRYPOINT [ "/opt/tarssh" ]
+CMD [ "-v", "--user=nobody", "--chroot=/var/empty", "--listen=0.0.0.0:22" ]
