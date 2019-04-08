@@ -16,6 +16,7 @@ env_logger = "0.6.1"
 log = "0.4.6"
 structopt = "0.2.15"
 tk-listen = "0.2.1"
+tokio-signal = "0.2.7"
 
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { git = "https://github.com/Freaky/rusty-sandbox", branch = "sandbox-this-process-result", optional = true }

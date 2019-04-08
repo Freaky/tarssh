@@ -15,6 +15,8 @@ use tokio::prelude::FutureExt;
 use tokio::runtime::Runtime;
 use tokio::timer::Delay;
 
+use tokio_signal;
+
 use tk_listen::ListenExt;
 
 use structopt;
@@ -113,6 +115,8 @@ fn main() {
     let mut rt = Runtime::new()
         .map_err(|err| errx(69, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
+
+    let startup = Instant::now();
 
     let listeners: Vec<TcpListener> = opt
         .listen
@@ -269,8 +273,22 @@ fn main() {
         rt.spawn(server);
     }
 
-    rt.shutdown_on_idle()
-        .wait()
+    let interrupt = tokio_signal::ctrl_c()
+        .flatten_stream()
+        .map_err(|error| errx(69, format!("signal(), error: {}", error)))
+        .take(1)
+        .for_each(|()| {
+            info!("interrupt");
+            Ok(())
+        });
+
+    rt.block_on(interrupt)
         .map_err(|err| errx(69, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
+
+    info!(
+        "shutdown, uptime: {:.2?}, clients: {}",
+        startup.elapsed(),
+        NUM_CLIENTS.load(Ordering::Relaxed)
+    )
 }
