@@ -6,6 +6,8 @@ use env_logger::Builder;
 use log::LevelFilter;
 use log::{error, info, warn};
 
+use exitcode;
+
 use futures::future::{loop_fn, Loop};
 use futures::stream::Stream;
 use futures::Future;
@@ -113,7 +115,7 @@ fn main() {
         .init();
 
     let mut rt = Runtime::new()
-        .map_err(|err| errx(69, format!("tokio, error: {:?}", err)))
+        .map_err(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
 
     let startup = Instant::now();
@@ -127,7 +129,7 @@ fn main() {
                 listener
             }
             Err(err) => {
-                errx(71, format!("listen, addr: {}, error: {}", addr, err));
+                errx(exitcode::OSERR, format!("listen, addr: {}, error: {}", addr, err));
                 unreachable!();
             }
         })
@@ -275,7 +277,7 @@ fn main() {
 
     let interrupt = tokio_signal::ctrl_c()
         .flatten_stream()
-        .map_err(|error| errx(69, format!("signal(), error: {}", error)))
+        .map_err(|error| errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error)))
         .take(1)
         .for_each(|()| {
             info!("interrupt");
@@ -283,7 +285,7 @@ fn main() {
         });
 
     rt.block_on(interrupt)
-        .map_err(|err| errx(69, format!("tokio, error: {:?}", err)))
+        .map_err(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
 
     info!(
