@@ -304,9 +304,8 @@ fn main() {
                     true
                 }
             })
-            .for_each(move |(sock, peer)| {
-                tokio::spawn(tarpit_connection(sock, peer, delay, timeout))
-            });
+            .map(move |(sock, peer)| tokio::spawn(tarpit_connection(sock, peer, delay, timeout)))
+            .listen(max_clients);
 
         rt.spawn(server);
     }
