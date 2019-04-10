@@ -94,7 +94,7 @@ struct PrivDropConfig {
 mod error;
 use error::Error;
 
-fn errx<M: AsRef<str>>(code: i32, message: M) {
+fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
     std::process::exit(code);
 }
@@ -179,7 +179,6 @@ fn main() {
                     exitcode::OSERR,
                     format!("listen, addr: {}, error: {}", addr, err),
                 );
-                unreachable!();
             }
         })
         .collect();
