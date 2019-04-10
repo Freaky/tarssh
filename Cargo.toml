@@ -20,6 +20,6 @@ tokio-signal = "0.2.7"
 exitcode = "1.1.2"
 
 [target."cfg(unix)".dependencies]
-rusty-sandbox = { git = "https://github.com/Freaky/rusty-sandbox", branch = "sandbox-this-process-result", optional = true }
+rusty-sandbox = { version = "0.2", optional = true }
 privdrop = { version = "0.3.1", optional = true }
 nix = { version = "0.13.0", optional = true }
