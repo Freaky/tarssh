@@ -96,6 +96,68 @@ fn errx<M: AsRef<str>>(code: i32, message: M) {
     std::process::exit(code);
 }
 
+fn tarpit_connection(
+    sock: tokio::net::TcpStream,
+    peer: SocketAddr,
+    delay: u64,
+    timeout: u64,
+) -> impl Future<Item = (), Error = ()> {
+    let start = Instant::now();
+    let _ = sock
+        .set_recv_buffer_size(1)
+        .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
+
+    let _ = sock
+        .set_send_buffer_size(16)
+        .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
+
+    loop_fn((sock, 0), move |(sock, i)| {
+        Delay::new(Instant::now() + Duration::from_secs(delay))
+            .map_err(|err| {
+                error!("tokio timer, error: {}", err);
+                std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
+            })
+            .and_then(move |_| {
+                tokio::io::write_all(sock, BANNER[i % BANNER.len()])
+                    .timeout(Duration::from_secs(timeout))
+                    .map_err(|err| {
+                        if err.is_elapsed() {
+                            std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                        } else {
+                            err.into_inner().unwrap_or_else(|| {
+                                std::io::Error::new(std::io::ErrorKind::Other, "timeout broke")
+                            })
+                        }
+                    })
+            })
+            .and_then(move |(sock, _)| {
+                tokio::io::flush(sock)
+                    .timeout(Duration::from_secs(timeout))
+                    .map_err(|err| {
+                        if err.is_elapsed() {
+                            std::io::Error::new(std::io::ErrorKind::Other, "socket timeout")
+                        } else {
+                            err.into_inner().unwrap_or_else(|| {
+                                std::io::Error::new(std::io::ErrorKind::Other, "timeout broke")
+                            })
+                        }
+                    })
+            })
+            .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
+            .or_else(move |err| {
+                let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
+                info!(
+                    "disconnect, peer: {}, duration: {:.2?}, error: {}, clients: {}",
+                    peer,
+                    start.elapsed(),
+                    err,
+                    connected
+                );
+                Ok(Loop::Break(()))
+            })
+    })
+}
+
 fn main() {
     let opt = Config::from_args();
 
@@ -129,7 +191,10 @@ fn main() {
                 listener
             }
             Err(err) => {
-                errx(exitcode::OSERR, format!("listen, addr: {}, error: {}", addr, err));
+                errx(
+                    exitcode::OSERR,
+                    format!("listen, addr: {}, error: {}", addr, err),
+                );
                 unreachable!();
             }
         })
@@ -203,73 +268,7 @@ fn main() {
                 }
             })
             .for_each(move |(sock, peer)| {
-                let start = Instant::now();
-                let _ = sock
-                    .set_recv_buffer_size(1)
-                    .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
-
-                let _ = sock
-                    .set_send_buffer_size(16)
-                    .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
-
-                let tarpit = loop_fn((sock, 0), move |(sock, i)| {
-                    Delay::new(Instant::now() + Duration::from_secs(delay))
-                        .map_err(|err| {
-                            error!("tokio timer, error: {}", err);
-                            std::io::Error::new(std::io::ErrorKind::Other, "timer failure")
-                        })
-                        .and_then(move |_| {
-                            tokio::io::write_all(sock, BANNER[i % BANNER.len()])
-                                .timeout(Duration::from_secs(timeout))
-                                .map_err(|err| {
-                                    if err.is_elapsed() {
-                                        std::io::Error::new(
-                                            std::io::ErrorKind::Other,
-                                            "socket timeout",
-                                        )
-                                    } else {
-                                        err.into_inner().unwrap_or_else(|| {
-                                            std::io::Error::new(
-                                                std::io::ErrorKind::Other,
-                                                "timeout broke",
-                                            )
-                                        })
-                                    }
-                                })
-                        })
-                        .and_then(move |(sock, _)| {
-                            tokio::io::flush(sock)
-                                .timeout(Duration::from_secs(timeout))
-                                .map_err(|err| {
-                                    if err.is_elapsed() {
-                                        std::io::Error::new(
-                                            std::io::ErrorKind::Other,
-                                            "socket timeout",
-                                        )
-                                    } else {
-                                        err.into_inner().unwrap_or_else(|| {
-                                            std::io::Error::new(
-                                                std::io::ErrorKind::Other,
-                                                "timeout broke",
-                                            )
-                                        })
-                                    }
-                                })
-                        })
-                        .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
-                        .or_else(move |err| {
-                            let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
-                            info!(
-                                "disconnect, peer: {}, duration: {:.2?}, error: {}, clients: {}",
-                                peer,
-                                start.elapsed(),
-                                err,
-                                connected
-                            );
-                            Ok(Loop::Break(()))
-                        })
-                });
-                tokio::spawn(tarpit)
+                tokio::spawn(tarpit_connection(sock, peer, delay, timeout))
             });
 
         rt.spawn(server);
