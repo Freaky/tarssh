@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use env_logger::Builder;
+use env_logger;
 use log::LevelFilter;
 use log::{error, info, warn};
 
@@ -145,17 +145,17 @@ fn tarpit_connection(
 fn main() {
     let opt = Config::from_args();
 
+    let max_clients = opt.max_clients as usize;
+    let delay = opt.delay;
+    let timeout = opt.timeout;
     let log_level = match opt.verbose {
         0 => LevelFilter::Off,
         1 => LevelFilter::Info,
         2 => LevelFilter::Debug,
         _ => LevelFilter::Trace,
     };
-    let max_clients = opt.max_clients as usize;
-    let delay = opt.delay;
-    let timeout = opt.timeout;
 
-    Builder::from_default_env()
+    env_logger::Builder::from_default_env()
         .filter(None, log_level)
         .default_format_timestamp(!opt.disable_timestamps)
         .init();
@@ -260,12 +260,10 @@ fn main() {
         .flatten_stream()
         .map_err(|error| errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error)))
         .take(1)
-        .for_each(|()| {
-            info!("interrupt");
-            Ok(())
-        });
+        .for_each(|_| Ok(()));
 
     rt.block_on(interrupt)
+        .map(|_| info!("interrupt"))
         .map_err(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
 
