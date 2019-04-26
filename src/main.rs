@@ -14,7 +14,6 @@ use futures::Future;
 
 use tokio::net::TcpListener;
 use tokio::prelude::FutureExt;
-use tokio::runtime::Runtime;
 use tokio::timer::Delay;
 
 use tokio_signal;
@@ -68,6 +67,9 @@ struct Config {
     /// Verbose level (repeat for more verbosity)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
+    /// Thread count [default: CPU count]
+    #[structopt(long = "threads")]
+    threads: Option<usize>,
     /// Disable timestamps in logs
     #[structopt(long = "disable-timestamps")]
     disable_timestamps: bool,
@@ -160,7 +162,13 @@ fn main() {
         .default_format_timestamp(!opt.disable_timestamps)
         .init();
 
-    let mut rt = Runtime::new()
+    let mut rt = tokio::runtime::Builder::new();
+    match opt.threads {
+        Some(threads) if threads > 0 => { rt.core_threads(threads.min(1024)); },
+        _ => ()
+    };
+    let mut rt = rt
+        .build()
         .map_err(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
 
