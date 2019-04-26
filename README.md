@@ -4,7 +4,7 @@ A simple SSH tarpit, similar to [endlessh](https://nullprogram.com/blog/2019/03/
 
 As per [RFC 4253](https://tools.ietf.org/html/rfc4253#page-4):
 
-```
+```txt
    The server MAY send other lines of data before sending the version
    string.  Each line SHOULD be terminated by a Carriage Return and Line
    Feed.  Such lines MUST NOT begin with "SSH-", and SHOULD be encoded
@@ -22,7 +22,7 @@ that's one less free connection for the next attack.
 
 ## Usage
 
-```
+```console
 -% cargo build --release
 -% target/release/tarssh --help
 tarssh 0.2.0
@@ -65,7 +65,7 @@ OPTIONS:
 
 A Docker image is available as [`freeky/tarssh`][docker-image]:
 
-```
+```console
 -% sudo docker run --network=host freeky/tarssh
 Unable to find image 'freeky/tarssh:latest' locally
 latest: Pulling from freeky/tarssh
