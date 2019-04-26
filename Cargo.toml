@@ -7,7 +7,7 @@ edition = "2018"
 [features]
 default = ["sandbox", "drop_privs"]
 sandbox = ["rusty-sandbox"]
-drop_privs = ["privdrop", "nix"]
+drop_privs = ["privdrop"]
 
 [dependencies]
 futures = "0.1.25"
@@ -22,4 +22,3 @@ exitcode = "1.1.2"
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { version = "0.2", optional = true }
 privdrop = { version = "0.3.1", optional = true }
-nix = { version = "0.13.0", optional = true }
