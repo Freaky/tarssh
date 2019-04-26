@@ -11,7 +11,7 @@ OpenBSD (Pledge) and macOS (Seatbelt).
 ```
 -% cargo build --release
 -% target/release/tarssh --help
-tarssh 0.1.0
+tarssh 0.2.0
 Thomas Hurst <tom@hur.st>
 A SSH tarpit server
 
@@ -40,12 +40,33 @@ OPTIONS:
 [INFO  tarssh] privdrop, enabled: false
 [INFO  tarssh] sandbox, enabled: true
 [INFO  tarssh] start, servers: 2, max_clients: 4096, delay: 10s, timeout: 30s
-[INFO  tarssh] connect, peer: 127.0.0.1:37485, clients: 1
-[INFO  tarssh] connect, peer: [::1]:37494, clients: 2
-[INFO  tarssh] disconnect, peer: 127.0.0.1:37485, duration: 20.19s, error: Broken pipe (os error 32), clients: 1
-[INFO  tarssh] disconnect, peer: [::1]:37494, duration: 30.08s, error: Broken pipe (os error 32), clients: 0
+[INFO  tarssh] connect, peer: 127.0.0.1:30980, clients: 1
+[INFO  tarssh] connect, peer: 127.0.0.1:30983, clients: 2
+[INFO  tarssh] disconnect, peer: 127.0.0.1:30980, duration: 30.00s, error: "broken pipe", clients: 1
+[INFO  tarssh] disconnect, peer: 127.0.0.1:30983, duration: 40.02s, error: "broken pipe", clients: 0
+^C[INFO  tarssh] interrupt
+[INFO  tarssh] shutdown, uptime: 50.85s, clients: 0
+```
+
+A Docker image built from `master` is available as [`freeky/tarssh`][docker-image]:
+
+```
+-% sudo docker run --network=host freeky/tarssh
+Unable to find image 'freeky/tarssh:latest' locally
+latest: Pulling from freeky/tarssh
+27833a3ba0a5: Pull complete 
+1fbf3b23257c: Pull complete 
+30379a92040a: Pull complete 
+Digest: sha256:a1eccb7dd694753e0d6ea682f5feed2e17dcfc88d817714502b518c381b94298
+Status: Downloaded newer image for freeky/tarssh:latest
+[2019-04-10T23:02:57Z INFO  tarssh] listen, addr: 0.0.0.0:22
+[2019-04-10T23:02:57Z INFO  tarssh] privdrop, chroot: /var/empty
+[2019-04-10T23:02:57Z INFO  tarssh] privdrop, user: nobody
+[2019-04-10T23:02:57Z INFO  tarssh] privdrop, enabled: true
+[2019-04-10T23:02:57Z INFO  tarssh] start, servers: 1, max_clients: 4096, delay: 10s, timeout: 30s
 ```
 
 [Tokio]: https://tokio.rs
 [rusty-sandbox]: https://github.com/myfreeweb/rusty-sandbox
 [privdrop]: https://crates.io/crates/privdrop
+[docker-image]: https://hub.docker.com/r/freeky/tarssh
