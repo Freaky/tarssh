@@ -1,3 +1,6 @@
+[![Cargo](https://img.shields.io/crates/v/tarssh.svg)][crate]
+[![Docker](https://img.shields.io/docker/automated/freeky/tarssh.svg)][docker-image]
+
 # tarssh
 
 A simple SSH tarpit, similar to [endlessh](https://nullprogram.com/blog/2019/03/22/).
@@ -84,4 +87,5 @@ Status: Downloaded newer image for freeky/tarssh:latest
 [Tokio]: https://tokio.rs
 [rusty-sandbox]: https://github.com/myfreeweb/rusty-sandbox
 [privdrop]: https://crates.io/crates/privdrop
+[crate]: https://crates.io/crates/tarssh
 [docker-image]: https://hub.docker.com/r/freeky/tarssh
