@@ -2,9 +2,23 @@
 
 A simple SSH tarpit, similar to [endlessh](https://nullprogram.com/blog/2019/03/22/).
 
-Written in Rust using [Tokio] for async IO, [privdrop] for basic Unix privilege
-dropping, and [rusty-sandbox] for optional sandboxing on FreeBSD (Capsicum),
-OpenBSD (Pledge) and macOS (Seatbelt).
+As per [RFC 4253](https://tools.ietf.org/html/rfc4253#page-4):
+
+```
+   The server MAY send other lines of data before sending the version
+   string.  Each line SHOULD be terminated by a Carriage Return and Line
+   Feed.  Such lines MUST NOT begin with "SSH-", and SHOULD be encoded
+   in ISO-10646 UTF-8 [RFC3629] (language is not specified).  Clients
+   MUST be able to process such lines.
+```
+
+In other words, you can fool SSH clients into waiting an extremely long time for
+a SSH handshake to even begin simply by waffling on endlessly.  My high score is
+just over a week.
+
+The intent of this is to increase the cost of mass SSH scanning - even clients
+that immediately disconnect after the first response are delayed a little, and
+that's one less free connection for the next attack.
 
 ## Usage
 
@@ -30,6 +44,7 @@ OPTIONS:
     -g, --group <group>                Run as this group
     -l, --listen <listen>...           Listen address(es) to bind to [default: 0.0.0.0:2222]
     -c, --max-clients <max_clients>    Best-effort connection limit [default: 4096]
+        --threads <threads>            Thread count [default: CPU count]
     -t, --timeout <timeout>            Socket write timeout [default: 30]
     -u, --user <user>                  Run as this user and their primary group
 
@@ -48,7 +63,7 @@ OPTIONS:
 [INFO  tarssh] shutdown, uptime: 50.85s, clients: 0
 ```
 
-A Docker image built from `master` is available as [`freeky/tarssh`][docker-image]:
+A Docker image is available as [`freeky/tarssh`][docker-image]:
 
 ```
 -% sudo docker run --network=host freeky/tarssh
