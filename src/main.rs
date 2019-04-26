@@ -167,8 +167,10 @@ fn main() {
 
     let mut rt = tokio::runtime::Builder::new();
     match opt.threads {
-        Some(threads) if threads > 0 => { rt.core_threads(threads.min(1024)); },
-        _ => ()
+        Some(threads) if threads > 0 => {
+            rt.core_threads(threads.min(1024));
+        }
+        _ => (),
     };
     let mut rt = rt
         .build()
@@ -217,7 +219,7 @@ fn main() {
             }
 
             pd.apply()
-                .unwrap_or_else(|err| errx(71, format!("privdrop, error: {}", err)));
+                .unwrap_or_else(|err| errx(exitcode::OSERR, format!("privdrop, error: {}", err)));
 
             info!("privdrop, enabled: true");
         } else {
