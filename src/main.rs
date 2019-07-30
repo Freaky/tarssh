@@ -1,30 +1,23 @@
 #![cfg_attr(feature = "nightly", feature(external_doc))]
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
+#![feature(async_await)]
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use env_logger;
+use exitcode;
+use futures_util::stream::StreamExt;
 use log::LevelFilter;
 use log::{error, info, warn};
-
-use exitcode;
-
-use futures::future::{loop_fn, Loop};
-use futures::stream::Stream;
-use futures::Future;
-
+use structopt;
+use structopt::StructOpt;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::prelude::FutureExt;
 use tokio::timer::Delay;
-
 use tokio_signal;
-
-use tk_listen::ListenExt;
-
-use structopt;
-use structopt::StructOpt;
 
 #[cfg(all(unix, feature = "sandbox"))]
 use rusty_sandbox::Sandbox;
@@ -96,20 +89,17 @@ struct PrivDropConfig {
     chroot: Option<PathBuf>,
 }
 
-mod error;
-use error::Error;
-
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
     std::process::exit(code);
 }
 
-fn tarpit_connection(
-    sock: tokio::net::TcpStream,
+async fn tarpit_connection(
+    mut sock: tokio::net::TcpStream,
     peer: SocketAddr,
     delay: u64,
     timeout: u64,
-) -> impl Future<Item = (), Error = ()> {
+) {
     let start = Instant::now();
     let _ = sock
         .set_recv_buffer_size(1)
@@ -119,32 +109,26 @@ fn tarpit_connection(
         .set_send_buffer_size(16)
         .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
 
-    loop_fn((sock, 0), move |(sock, i)| {
-        Delay::new(Instant::now() + Duration::from_secs(delay))
-            .map_err(Error::from)
-            .and_then(move |_| {
-                tokio::io::write_all(sock, BANNER[i % BANNER.len()])
-                    .timeout(Duration::from_secs(timeout))
-                    .from_err()
-            })
-            .and_then(move |(sock, _)| {
-                tokio::io::flush(sock)
-                    .timeout(Duration::from_secs(timeout))
-                    .from_err()
-            })
-            .map(move |sock| Loop::Continue((sock, i.wrapping_add(1))))
-            .or_else(move |err| {
-                let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
-                info!(
-                    "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
-                    peer,
-                    start.elapsed(),
-                    err,
-                    connected
-                );
-                Ok(Loop::Break(()))
-            })
-    })
+    for chunk in BANNER.iter().cycle() {
+        Delay::new(Instant::now() + Duration::from_secs(delay)).await;
+
+        if let Err(err) = sock
+            .write_all(chunk.as_bytes())
+            .timeout(Duration::from_secs(timeout))
+            .await
+            .unwrap_or_else(|e| Err(e.into()))
+        {
+            let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
+            info!(
+                "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
+                peer,
+                start.elapsed(),
+                err,
+                connected
+            );
+            break;
+        }
+    }
 }
 
 fn main() {
@@ -172,7 +156,7 @@ fn main() {
         }
         _ => (),
     };
-    let mut rt = rt
+    let rt = rt
         .build()
         .map_err(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)))
         .expect("unreachable");
@@ -241,44 +225,47 @@ fn main() {
         timeout
     );
 
-    for listener in listeners.into_iter() {
-        let server = listener
-            .incoming()
-            .sleep_on_error(Duration::from_millis(100))
-            .filter_map(|sock| {
-                sock.peer_addr()
-                    .map_err(|err| error!("peer_addr(), error: {}", err))
-                    .map(|peer| (sock, peer))
-                    .ok()
-            })
-            .filter(move |(_sock, peer)| {
-                let connected = NUM_CLIENTS.fetch_add(1, Ordering::Relaxed) + 1;
+    for mut listener in listeners.into_iter() {
+        let server = async move {
+            loop {
+                match listener.accept().await {
+                    Ok((sock, peer)) => {
+                        let connected = NUM_CLIENTS.fetch_add(1, Ordering::Relaxed) + 1;
 
-                if connected > max_clients {
-                    NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
-                    info!("reject, peer: {}, clients: {}", peer, connected);
-                    false
-                } else {
-                    info!("connect, peer: {}, clients: {}", peer, connected);
-                    true
+                        if connected > max_clients {
+                            NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
+                            info!("reject, peer: {}, clients: {}", peer, connected);
+                        } else {
+                            info!("connect, peer: {}, clients: {}", peer, connected);
+                            tokio::spawn(tarpit_connection(sock, peer, delay, timeout));
+                        }
+                    }
+                    Err(err) => match err.kind() {
+                        std::io::ErrorKind::ConnectionRefused
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::ConnectionReset => (),
+                        _ => {
+                            let wait = Duration::from_millis(100);
+                            warn!("accept, err: {}, wait: {:?}", err, wait);
+                            Delay::new(Instant::now() + wait).await;
+                        }
+                    },
                 }
-            })
-            .map(move |(sock, peer)| tokio::spawn(tarpit_connection(sock, peer, delay, timeout)))
-            .listen(max_clients);
+            }
+        };
 
         rt.spawn(server);
     }
 
-    let interrupt = tokio_signal::ctrl_c()
-        .flatten_stream()
-        .map_err(|error| errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error)))
-        .take(1)
-        .for_each(|_| Ok(()));
+    let interrupter = async {
+        let mut interrupt = tokio_signal::CtrlC::new().await.unwrap_or_else(|error| {
+            errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
+        });
+        let _ = interrupt.next().await;
+        info!("interrupt");
+    };
 
-    rt.block_on(interrupt)
-        .map(|_| info!("interrupt"))
-        .map_err(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)))
-        .expect("unreachable");
+    rt.block_on(interrupter);
 
     info!(
         "shutdown, uptime: {:.2?}, clients: {}",
