@@ -19,6 +19,9 @@ use tokio::prelude::FutureExt;
 use tokio::timer::Delay;
 use tokio_signal;
 
+#[cfg(unix)]
+use tokio_signal::unix::{Signal, SIGTERM};
+
 #[cfg(all(unix, feature = "sandbox"))]
 use rusty_sandbox::Sandbox;
 
@@ -257,15 +260,32 @@ fn main() {
         rt.spawn(server);
     }
 
-    let interrupter = async {
-        let mut interrupt = tokio_signal::CtrlC::new().await.unwrap_or_else(|error| {
-            errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
-        });
-        let _ = interrupt.next().await;
-        info!("interrupt");
+    let shutdown = async {
+        let interrupt = tokio_signal::CtrlC::new()
+            .await
+            .unwrap_or_else(|error| {
+                errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
+            })
+            .map(|_| "interrupt");
+
+        #[cfg(unix)]
+        let interrupt = futures_util::stream::select(
+            interrupt,
+            Signal::new(SIGTERM)
+                .await
+                .unwrap_or_else(|error| {
+                    errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
+                })
+                .map(|_| "terminate"),
+        );
+
+        let mut interrupt = interrupt;
+        if let Some(signal) = interrupt.next().await {
+            info!("{}", signal);
+        }
     };
 
-    rt.block_on(interrupter);
+    rt.block_on(shutdown);
 
     info!(
         "shutdown, uptime: {:.2?}, clients: {}",
