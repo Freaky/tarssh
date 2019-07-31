@@ -100,8 +100,8 @@ fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
 async fn tarpit_connection(
     mut sock: tokio::net::TcpStream,
     peer: SocketAddr,
-    delay: u64,
-    timeout: u64,
+    delay: Duration,
+    timeout: Duration,
 ) {
     let start = Instant::now();
     let _ = sock
@@ -113,11 +113,11 @@ async fn tarpit_connection(
         .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
 
     for chunk in BANNER.iter().cycle() {
-        Delay::new(Instant::now() + Duration::from_secs(delay)).await;
+        Delay::new(Instant::now() + delay).await;
 
         if let Err(err) = sock
             .write_all(chunk.as_bytes())
-            .timeout(Duration::from_secs(timeout))
+            .timeout(timeout)
             .await
             .unwrap_or_else(|e| Err(e.into()))
         {
@@ -138,8 +138,8 @@ fn main() {
     let opt = Config::from_args();
 
     let max_clients = opt.max_clients as usize;
-    let delay = opt.delay;
-    let timeout = opt.timeout;
+    let delay = Duration::from_secs(opt.delay);
+    let timeout = Duration::from_secs(opt.timeout);
     let log_level = match opt.verbose {
         0 => LevelFilter::Off,
         1 => LevelFilter::Info,
@@ -221,8 +221,8 @@ fn main() {
         "start, servers: {}, max_clients: {}, delay: {}s, timeout: {}s",
         listeners.len(),
         opt.max_clients,
-        delay,
-        timeout
+        delay.as_secs(),
+        timeout.as_secs()
     );
 
     for mut listener in listeners.into_iter() {
