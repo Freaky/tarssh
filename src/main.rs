@@ -104,13 +104,13 @@ async fn tarpit_connection(
     timeout: Duration,
 ) {
     let start = Instant::now();
-    let _ = sock
+    sock
         .set_recv_buffer_size(1)
-        .map_err(|err| warn!("set_recv_buffer_size(), error: {}", err));
+        .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
 
-    let _ = sock
+    sock
         .set_send_buffer_size(16)
-        .map_err(|err| warn!("set_send_buffer_size(), error: {}", err));
+        .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
 
     for chunk in BANNER.iter().cycle() {
         Delay::new(Instant::now() + delay).await;
