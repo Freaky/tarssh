@@ -153,16 +153,13 @@ fn main() {
         .init();
 
     let mut rt = tokio::runtime::Builder::new();
-    match opt.threads {
-        Some(threads) if threads > 0 => {
-            rt.core_threads(threads.min(1024));
-        }
-        _ => (),
-    };
+    let threads = opt.threads.unwrap_or_default().min(1024);
+    if threads > 0 {
+        rt.core_threads(threads);
+    }
     let rt = rt
         .build()
-        .map_err(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)))
-        .expect("unreachable");
+        .unwrap_or_else(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)));
 
     let startup = Instant::now();
 
