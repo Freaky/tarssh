@@ -13,9 +13,9 @@ use log::LevelFilter;
 use log::{error, info, warn};
 use structopt;
 use structopt::StructOpt;
+use tokio::future::FutureExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
-use tokio::prelude::FutureExt;
 use tokio::timer::Delay;
 use tokio_signal;
 
@@ -104,12 +104,10 @@ async fn tarpit_connection(
     timeout: Duration,
 ) {
     let start = Instant::now();
-    sock
-        .set_recv_buffer_size(1)
+    sock.set_recv_buffer_size(1)
         .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
 
-    sock
-        .set_send_buffer_size(16)
+    sock.set_send_buffer_size(16)
         .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
 
     for chunk in BANNER.iter().cycle() {
@@ -259,7 +257,6 @@ fn main() {
 
     let shutdown = async {
         let interrupt = tokio_signal::CtrlC::new()
-            .await
             .unwrap_or_else(|error| {
                 errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
             })
@@ -269,7 +266,6 @@ fn main() {
         let interrupt = futures_util::stream::select(
             interrupt,
             Signal::new(SIGTERM)
-                .await
                 .unwrap_or_else(|error| {
                     errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
                 })

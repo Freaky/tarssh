@@ -21,9 +21,9 @@ exitcode = "1.1.2"
 futures-util-preview = "0.3.0-alpha.17"
 log = "0.4.6"
 structopt = "0.2.15"
-tokio = { git = "https://github.com/tokio-rs/tokio" }
-tokio-io = { git = "https://github.com/tokio-rs/tokio" }
-tokio-signal = { git = "https://github.com/tokio-rs/tokio" }
+tokio = "=0.2.0-alpha.1"
+tokio-io = "=0.2.0-alpha.1"
+tokio-signal = "=0.3.0-alpha.1"
 
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { version = "0.2", optional = true }
