@@ -223,7 +223,7 @@ fn main() {
         timeout.as_secs()
     );
 
-    for mut listener in listeners.into_iter() {
+    for mut listener in listeners {
         let server = async move {
             loop {
                 match listener.accept().await {
