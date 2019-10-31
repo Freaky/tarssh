@@ -1,0 +1,15 @@
+[Unit]
+Description=tarssh
+Documentation=https://github.com/Freaky/tarssh
+# If you want to use both, you need to either:
+# * Run tarssh on a different port.  (But that's stupid.)
+# * Run sshd on a different port.  (See /etc/ssh/sshd_config)
+Conflicts=ssh.service
+
+[Service]
+ExecStart=/usr/local/sbin/tarssh -v -l 0.0.0.0:22 --chroot /tmp/empty/ --user nobody --group nogroup --threads 1 -c 100
+RestartSec=1min
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
