@@ -1,6 +1,5 @@
 #![cfg_attr(feature = "nightly", feature(external_doc))]
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
-#![feature(async_await)]
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,19 +7,18 @@ use std::time::{Duration, Instant};
 
 use env_logger;
 use exitcode;
-use futures_util::stream::StreamExt;
+use futures::stream::StreamExt;
+use futures_util::future::FutureExt;
 use log::LevelFilter;
 use log::{error, info, warn};
 use structopt;
 use structopt::StructOpt;
-use tokio::future::FutureExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
-use tokio::timer::Delay;
-use tokio_signal;
+use tokio::time::{delay_for, timeout};
 
 #[cfg(unix)]
-use tokio_signal::unix::{Signal, SIGTERM};
+use tokio::signal::unix::{signal, SignalKind};
 
 #[cfg(all(unix, feature = "sandbox"))]
 use rusty_sandbox::Sandbox;
@@ -101,7 +99,7 @@ async fn tarpit_connection(
     mut sock: tokio::net::TcpStream,
     peer: SocketAddr,
     delay: Duration,
-    timeout: Duration,
+    time_out: Duration,
 ) {
     let start = Instant::now();
     sock.set_recv_buffer_size(1)
@@ -111,14 +109,13 @@ async fn tarpit_connection(
         .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
 
     for chunk in BANNER.iter().cycle() {
-        Delay::new(Instant::now() + delay).await;
+        delay_for(delay).await;
 
-        if let Err(err) = sock
-            .write_all(chunk.as_bytes())
-            .timeout(timeout)
+        let res = timeout(time_out, sock.write_all(chunk.as_bytes()))
             .await
-            .unwrap_or_else(|e| Err(e.into()))
-        {
+            .unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::Other, "timed out")));
+
+        if let Err(err) = res {
             let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
             info!(
                 "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
@@ -147,35 +144,45 @@ fn main() {
 
     env_logger::Builder::from_default_env()
         .filter(None, log_level)
-        .default_format_timestamp(!opt.disable_timestamps)
+        .format_timestamp(if opt.disable_timestamps {
+            None
+        } else {
+            Some(env_logger::fmt::TimestampPrecision::Millis)
+        })
         .init();
 
     let mut rt = tokio::runtime::Builder::new();
+
     let threads = opt.threads.unwrap_or_default().min(1024);
     if threads > 0 {
-        rt.core_threads(threads);
+        rt.num_threads(threads);
     }
-    let rt = rt
+
+    let mut rt = rt
+        .threaded_scheduler()
+        .enable_all()
         .build()
         .unwrap_or_else(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)));
 
     let startup = Instant::now();
 
-    let listeners: Vec<TcpListener> = opt
+    let listeners: Vec<_> = opt
         .listen
         .iter()
-        .map(|addr| match TcpListener::bind(addr) {
-            Ok(listener) => {
-                info!("listen, addr: {}", addr);
-                listener
-            }
-            Err(err) => {
-                errx(
-                    exitcode::OSERR,
-                    format!("listen, addr: {}, error: {}", addr, err),
-                );
-            }
-        })
+        .map(
+            |addr| match rt.block_on(async { TcpListener::bind(addr).await }) {
+                Ok(listener) => {
+                    info!("listen, addr: {}", addr);
+                    listener
+                }
+                Err(err) => {
+                    errx(
+                        exitcode::OSERR,
+                        format!("listen, addr: {}, error: {}", addr, err),
+                    );
+                }
+            },
+        )
         .collect();
 
     #[cfg(all(unix, feature = "drop_privs"))]
@@ -245,7 +252,7 @@ fn main() {
                         _ => {
                             let wait = Duration::from_millis(100);
                             warn!("accept, err: {}, wait: {:?}", err, wait);
-                            Delay::new(Instant::now() + wait).await;
+                            delay_for(wait).await;
                         }
                     },
                 }
@@ -256,26 +263,20 @@ fn main() {
     }
 
     let shutdown = async {
-        let interrupt = tokio_signal::CtrlC::new()
-            .unwrap_or_else(|error| {
-                errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
-            })
-            .map(|_| "interrupt");
+        let interrupt = tokio::signal::ctrl_c().into_stream().map(|_| "interrupt");
 
         #[cfg(unix)]
-        let interrupt = futures_util::stream::select(
-            interrupt,
-            Signal::new(SIGTERM)
-                .unwrap_or_else(|error| {
-                    errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
-                })
-                .map(|_| "terminate"),
-        );
+        let mut term = signal(SignalKind::terminate()).unwrap_or_else(|error| {
+            errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
+        });
+        #[cfg(unix)]
+        let term2 = term.recv().into_stream().map(|_| "terminated");
+        #[cfg(unix)]
+        let interrupt = futures_util::stream::select(interrupt, term2);
 
-        let mut interrupt = interrupt;
-        if let Some(signal) = interrupt.next().await {
+        if let Some(signal) = interrupt.boxed().next().await {
             info!("{}", signal);
-        }
+        };
     };
 
     rt.block_on(shutdown);

@@ -16,14 +16,15 @@ sandbox = ["rusty-sandbox"]
 drop_privs = ["privdrop"]
 
 [dependencies]
-env_logger = "0.6.1"
+env_logger = "0.7.1"
 exitcode = "1.1.2"
-futures-util-preview = "0.3.0-alpha.17"
+futures = "0.3.1"
+futures-util = "0.3.1"
 log = "0.4.6"
-structopt = "0.2.15"
-tokio = "=0.2.0-alpha.1"
-tokio-io = "=0.2.0-alpha.1"
-tokio-signal = "=0.3.0-alpha.1"
+structopt = "0.3.5"
+# tokio = { version = "0.2.1", features = ["signal", "sync", "net", "time", "tcp", "io-driver", "io-util"] }
+tokio = { version = "0.2.1", features = ["full"] }
+# tokio-io = "=0.2.0-alpha.1"
 
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { version = "0.2", optional = true }
