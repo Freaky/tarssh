@@ -153,16 +153,24 @@ fn main() {
         .init();
 
     let mut rt = tokio::runtime::Builder::new();
+    let mut scheduler;
 
     if let Some(threaded) = opt.threads {
         rt.threaded_scheduler();
 
+        scheduler = "threaded".to_string();
+
         if let Some(threads) = threaded {
-            rt.num_threads(threads.min(1024).max(1));
+            let threads = threads.min(1024).max(1);
+            rt.num_threads(threads);
+            scheduler = format!("threaded, threads: {}", threads);
         }
     } else {
+        scheduler = "basic".to_string();
         rt.basic_scheduler();
     }
+
+    info!("init, version: {}, scheduler: {}", env!("CARGO_PKG_VERSION"), scheduler);
 
     let mut rt = rt
         .enable_all()
