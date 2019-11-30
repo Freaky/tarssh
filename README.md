@@ -26,10 +26,9 @@ that's one less free connection for the next attack.
 ## Usage
 
 ```console
--% cargo build --release
--% target/release/tarssh --help
-tarssh 0.2.0
-Thomas Hurst <tom@hur.st>
+-% cargo install tarssh
+-% tarssh --help
+tarssh 0.3.0
 A SSH tarpit server
 
 USAGE:
@@ -46,27 +45,28 @@ OPTIONS:
     -d, --delay <delay>                Seconds between responses [default: 10]
     -g, --group <group>                Run as this group
     -l, --listen <listen>...           Listen address(es) to bind to [default: 0.0.0.0:2222]
-    -c, --max-clients <max_clients>    Best-effort connection limit [default: 4096]
-        --threads <threads>            Thread count [default: CPU count]
+    -c, --max-clients <max-clients>    Best-effort connection limit [default: 4096]
+        --threads <threads>            Use threads, with optional thread count
     -t, --timeout <timeout>            Socket write timeout [default: 30]
     -u, --user <user>                  Run as this user and their primary group
 
 
--% target/release/tarssh -v --disable-timestamps -l 0.0.0.0:2222 \[::]:2222
+-% tarssh -v --disable-timestamps -l 0.0.0.0:2222 \[::]:2222
+[INFO  tarssh] init, version: 0.3.0, scheduler: basic
 [INFO  tarssh] listen, addr: 0.0.0.0:2222
 [INFO  tarssh] listen, addr: [::]:2222
 [INFO  tarssh] privdrop, enabled: false
 [INFO  tarssh] sandbox, enabled: true
 [INFO  tarssh] start, servers: 2, max_clients: 4096, delay: 10s, timeout: 30s
-[INFO  tarssh] connect, peer: 127.0.0.1:30980, clients: 1
-[INFO  tarssh] connect, peer: 127.0.0.1:30983, clients: 2
-[INFO  tarssh] disconnect, peer: 127.0.0.1:30980, duration: 30.00s, error: "broken pipe", clients: 1
-[INFO  tarssh] disconnect, peer: 127.0.0.1:30983, duration: 40.02s, error: "broken pipe", clients: 0
+[INFO  tarssh] connect, peer: 127.0.0.1:39410, clients: 1
+[INFO  tarssh] connect, peer: 127.0.0.1:39424, clients: 2
+[INFO  tarssh] disconnect, peer: 127.0.0.1:39410, duration: 20.02s, error: "Broken pipe (os error 32)", clients: 1
+[INFO  tarssh] disconnect, peer: 127.0.0.1:39424, duration: 20.06s, error: "Broken pipe (os error 32)", clients: 0
 ^C[INFO  tarssh] interrupt
-[INFO  tarssh] shutdown, uptime: 50.85s, clients: 0
+[INFO  tarssh] shutdown, uptime: 71.50s, clients: 0
 ```
 
-A Docker image is available as [`freeky/tarssh`][docker-image]:
+A dubiously-maintained Docker image is available as [`freeky/tarssh`][docker-image].
 
 ```console
 -% sudo docker run --network=host freeky/tarssh
