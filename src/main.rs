@@ -64,9 +64,10 @@ struct Config {
     /// Verbose level (repeat for more verbosity)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
-    /// Thread count [default: CPU count]
+    /// Use threads, with optional thread count
     #[structopt(long = "threads")]
-    threads: Option<usize>,
+    #[allow(clippy::option_option)]
+    threads: Option<Option<usize>>,
     /// Disable timestamps in logs
     #[structopt(long = "disable-timestamps")]
     disable_timestamps: bool,
@@ -153,13 +154,17 @@ fn main() {
 
     let mut rt = tokio::runtime::Builder::new();
 
-    let threads = opt.threads.unwrap_or_default().min(1024);
-    if threads > 0 {
-        rt.num_threads(threads);
+    if let Some(threaded) = opt.threads {
+        rt.threaded_scheduler();
+
+        if let Some(threads) = threaded {
+            rt.num_threads(threads.min(1024).max(1));
+        }
+    } else {
+        rt.basic_scheduler();
     }
 
     let mut rt = rt
-        .threaded_scheduler()
         .enable_all()
         .build()
         .unwrap_or_else(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)));
