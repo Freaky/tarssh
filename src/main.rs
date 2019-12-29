@@ -161,8 +161,8 @@ fn main() {
         scheduler = "threaded".to_string();
 
         if let Some(threads) = threaded {
-            let threads = threads.min(1024).max(1);
-            rt.num_threads(threads);
+            let threads = threads.min(512).max(1);
+            rt.core_threads(threads);
             scheduler = format!("threaded, threads: {}", threads);
         }
     } else {
