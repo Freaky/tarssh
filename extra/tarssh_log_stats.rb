@@ -3,10 +3,12 @@
 require 'time'
 
 def ft(t)
-  if t > 86400
+  if t >= 86400
     "%.1fd" % (t / 86400.0)
   elsif t >= 3600
     "%.1fh" % (t / 3600.0)
+  elsif t >= 60
+    "%.1fm" % (t / 60.0)
   else
     "%.0fs" % t
   end
