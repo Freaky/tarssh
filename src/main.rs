@@ -170,7 +170,11 @@ fn main() {
         rt.basic_scheduler();
     }
 
-    info!("init, version: {}, scheduler: {}", env!("CARGO_PKG_VERSION"), scheduler);
+    info!(
+        "init, version: {}, scheduler: {}",
+        env!("CARGO_PKG_VERSION"),
+        scheduler
+    );
 
     let mut rt = rt
         .enable_all()
