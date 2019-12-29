@@ -17,7 +17,7 @@ As per [RFC 4253](https://tools.ietf.org/html/rfc4253#page-4):
 
 In other words, you can fool SSH clients into waiting an extremely long time for
 a SSH handshake to even begin simply by waffling on endlessly.  My high score is
-just over a week.
+just over a fortnight.
 
 The intent of this is to increase the cost of mass SSH scanning - even clients
 that immediately disconnect after the first response are delayed a little, and
