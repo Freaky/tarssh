@@ -1,4 +1,4 @@
-FROM rust:1.33-stretch as build
+FROM rust:1-slim-buster as build
 
 WORKDIR /usr/src/tarssh
 
@@ -15,7 +15,7 @@ COPY . .
 RUN cargo build --release --no-default-features --features drop_privs
 
 # Use a fairly minimal enviroment for deployment
-FROM debian:stretch-slim
+FROM debian:buster-slim
 
 RUN mkdir /var/empty && chmod 0555 /var/empty
 COPY --from=build /usr/src/tarssh/target/release/tarssh /opt/tarssh
