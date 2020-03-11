@@ -12,7 +12,7 @@
 # tarssh_log:            The location for tarssh to log, default: "syslog"
 #                        May also be set to an absolute path, or "NO" to disable
 # tarssh_listen:         host:port pairs to listen on, default:
-#                        "0.0.0.0:22 \[::]:22" (all addresses on port 22)
+#                        "0.0.0.0:22 [::]:22" (all addresses on port 22)
 # tarssh_timeout (int):  Network timeout in seconds, default: 30
 # tarssh_delay (int):    Time between tarpit messages in seconds, default 10
 # tarssh_threads (bool, int): Whether to run in threaded mode, or a thread count,
@@ -37,7 +37,7 @@ start_cmd=start_cmd
 
 : "${tarssh_enable:='NO'}"
 : "${tarssh_log:='syslog'}"
-: "${tarssh_listen:='0.0.0.0:22 \[::]:22'}"
+: "${tarssh_listen:='0.0.0.0:22 [::]:22'}"
 : "${tarssh_timeout:='30'}"
 : "${tarssh_delay:='10'}"
 : "${tarssh_threads:='NO'}"
@@ -67,14 +67,14 @@ start_cmd()
 
 	case "${tarssh_log}" in
 	syslog)
-		/usr/sbin/daemon -p "${pidfile}" -c -T "${name}" \
-		    "${procname}" --disable-timestamps -v \
+		/usr/sbin/daemon -p "${pidfile}" -c -s info -T "${name}" \
+		    "${procname}" --disable-log-timestamps --disable-log-level --disable-log-ident -v \
 		    -l "${tarssh_listen}" -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
 		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" $tarssh_threads
 		;;
 	/*)
 		/usr/sbin/daemon -p "${pidfile}" -c -o "${tarssh_log}" \
-		    "${procname}" -v \
+		    "${procname}" -v --disable-log-level \
 		    -l "${tarssh_listen}" -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
 		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" $tarssh_threads
 		;;

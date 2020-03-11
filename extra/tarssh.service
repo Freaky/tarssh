@@ -7,7 +7,7 @@ Documentation=https://github.com/Freaky/tarssh
 Conflicts=ssh.service
 
 [Service]
-ExecStart=/usr/local/sbin/tarssh -v -l 0.0.0.0:22 --chroot /tmp/empty/ --user nobody --group nogroup --threads 1 -c 100
+ExecStart=/usr/local/sbin/tarssh -v -l 0.0.0.0:22 -c 1024 --chroot /tmp/empty/ --user nobody
 RestartSec=1min
 KillSignal=SIGINT
 
