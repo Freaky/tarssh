@@ -28,17 +28,19 @@ that's one less free connection for the next attack.
 ```console
 -% cargo install tarssh
 -% tarssh --help
-tarssh 0.3.0
+tarssh 0.4.0
 A SSH tarpit server
 
 USAGE:
     tarssh [FLAGS] [OPTIONS]
 
 FLAGS:
-        --disable-timestamps    Disable timestamps in logs
-    -h, --help                  Prints help information
-    -V, --version               Prints version information
-    -v, --verbose               Verbose level (repeat for more verbosity)
+        --disable-log-ident         Disable module name in logs (e.g. "tarssh")
+        --disable-log-level         Disable log level in logs (e.g. "info")
+        --disable-log-timestamps    Disable timestamps in logs
+    -h, --help                      Prints help information
+    -V, --version                   Prints version information
+    -v, --verbose                   Verbose level (repeat for more verbosity)
 
 OPTIONS:
         --chroot <chroot>              Chroot to this directory
@@ -51,8 +53,9 @@ OPTIONS:
     -u, --user <user>                  Run as this user and their primary group
 
 
+
 -% tarssh -v --disable-timestamps -l 0.0.0.0:2222 \[::]:2222
-[INFO  tarssh] init, version: 0.3.0, scheduler: basic
+[INFO  tarssh] init, version: 0.4.0, scheduler: basic
 [INFO  tarssh] listen, addr: 0.0.0.0:2222
 [INFO  tarssh] listen, addr: [::]:2222
 [INFO  tarssh] privdrop, enabled: false

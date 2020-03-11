@@ -69,8 +69,14 @@ struct Config {
     #[allow(clippy::option_option)]
     threads: Option<Option<usize>>,
     /// Disable timestamps in logs
-    #[structopt(long = "disable-timestamps")]
-    disable_timestamps: bool,
+    #[structopt(long)]
+    disable_log_timestamps: bool,
+    /// Disable module name in logs (e.g. "tarssh")
+    #[structopt(long)]
+    disable_log_ident: bool,
+    /// Disable log level in logs (e.g. "info")
+    #[structopt(long)]
+    disable_log_level: bool,
     #[cfg(all(unix, feature = "drop_privs"))]
     #[structopt(flatten)]
     #[cfg(all(unix, feature = "drop_privs"))]
@@ -145,11 +151,13 @@ fn main() {
 
     env_logger::Builder::from_default_env()
         .filter(None, log_level)
-        .format_timestamp(if opt.disable_timestamps {
+        .format_timestamp(if opt.disable_log_timestamps {
             None
         } else {
             Some(env_logger::fmt::TimestampPrecision::Millis)
         })
+        .format_module_path(!opt.disable_log_ident)
+        .format_level(!opt.disable_log_level)
         .init();
 
     let mut rt = tokio::runtime::Builder::new();
