@@ -54,7 +54,7 @@ OPTIONS:
 
 
 
--% tarssh -v --disable-timestamps -l 0.0.0.0:2222 \[::]:2222
+-% tarssh -v --disable-log-timestamps -l 0.0.0.0:2222 \[::]:2222
 [INFO  tarssh] init, version: 0.4.0, scheduler: basic
 [INFO  tarssh] listen, addr: 0.0.0.0:2222
 [INFO  tarssh] listen, addr: [::]:2222
