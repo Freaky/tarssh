@@ -7,19 +7,27 @@
 #
 # Supported options in /etc/rc.conf:
 #
-# tarssh_enable (bool):  Set to "NO" by default.
-#                        Set it to "YES" to enable tarssh
-# tarssh_log:            The location for tarssh to log, default: "syslog"
-#                        May also be set to an absolute path, or "NO" to disable
-# tarssh_listen:         host:port pairs to listen on, default:
-#                        "0.0.0.0:22 [::]:22" (all addresses on port 22)
-# tarssh_timeout (int):  Network timeout in seconds, default: 30
-# tarssh_delay (int):    Time between tarpit messages in seconds, default 10
-# tarssh_threads (bool, int): Whether to run in threaded mode, or a thread count,
-#                        default: "NO"
-# tarssh_max_clients (int): Maximum client count, default: 1024
-# tarssh_daemon_user:    User to switch to after launch, default: nobody
-# tarssh_daemon_chroot:  Directory to chroot to after launch, default: "/var/empty"
+# tarssh_enable (bool):       Enable tarssh server, set to "YES" to enable
+#                             default: "NO"
+# tarssh_log (str):           The location for tarssh to log.
+#                             One of "SYSLOG", "NO", or an absolute file path
+#                             default: "SYSLOG"
+# tarssh_listen (str):        Listen on given host:port pairs
+#                             default: "0.0.0.0:22 [::]:22"
+# tarssh_timeout (int):       Network timeout in seconds
+#                             default: 30
+# tarssh_delay (int):         Time between tarpit messages in seconds
+#                             default: 10
+# tarssh_threads (bool, int): "YES" for automatic threading, an integer for a
+#                             specific thread count, or "NO" for a simpler
+#                             single-threaded mode.
+#                             default: "NO"
+# tarssh_max_clients (int):   Maximum client count
+#                             default: 1024
+# tarssh_daemon_user (str):   User to switch to after launch
+#                             default: nobody
+# tarssh_daemon_chroot (str): Directory to chroot to after launch
+#                             default: "/var/empty"
 #
 
 . /etc/rc.subr
@@ -28,64 +36,65 @@ name="tarssh"
 desc="SSH tarpit server"
 rcvar="tarssh_enable"
 
-load_rc_config $name
+load_rc_config "${name}"
 
 pidfile="/var/run/${name}.pid"
 procname="/usr/local/bin/tarssh"
 command="/usr/sbin/daemon"
 start_cmd=start_cmd
 
-: "${tarssh_enable:='NO'}"
-: "${tarssh_log:='syslog'}"
-: "${tarssh_listen:='0.0.0.0:22 [::]:22'}"
-: "${tarssh_timeout:='30'}"
-: "${tarssh_delay:='10'}"
-: "${tarssh_threads:='NO'}"
-: "${tarssh_max_clients:='1024'}"
-: "${tarssh_daemon_user:='nobody'}"
-: "${tarssh_daemon_chroot:='/var/empty'}"
+: "${tarssh_enable:=NO}"
+: "${tarssh_log:=SYSLOG}"
+: "${tarssh_listen:=0.0.0.0:22 [::]:22}"
+: "${tarssh_timeout:=30}"
+: "${tarssh_delay:=10}"
+: "${tarssh_threads:=NO}"
+: "${tarssh_max_clients:=1024}"
+: "${tarssh_daemon_user:=nobody}"
+: "${tarssh_daemon_chroot:=/var/empty}"
 
 start_cmd()
 {
 	check_startmsgs && echo "Starting ${name}."
+	local threads
 
 	case "${tarssh_threads}" in
-	[1-9]|[1-9][0-9]|[1-9][0-9][0-9])
-		tarssh_threads="--threads ${tarssh_threads}"
+	[1-9]|[1-9][0-9]|[1-9][0-9][0-9]) # specific thread count
+		threads="--threads ${tarssh_threads}"
 		;;
-	[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]|[Oo][Nn])
-		tarssh_threads="--threads"
+	[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]|[Oo][Nn]) # automatic threads
+		threads="--threads"
 		;;
-	[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]|[Oo][Ff][Ff]|0)
-		tarssh_threads=""
+	[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]|[Oo][Ff][Ff]|0) # no threading
+		threads=""
 		;;
 	*)
-		warn "\$tarssh_threads is not set properly (one of 'Yes', 'No', or 1-999)"
+		warn "\$tarssh_threads is not set properly (one of 'YES', 'NO', or 1-999)"
 		return 1;
 		;;
 	esac
 
 	case "${tarssh_log}" in
-	syslog)
+	[Ss][Yy][Ss][Ll][Oo][Gg]) # syslog
 		/usr/sbin/daemon -p "${pidfile}" -c -s info -T "${name}" \
 		    "${procname}" --disable-log-timestamps --disable-log-level --disable-log-ident -v \
-		    -l "${tarssh_listen}" -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
-		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" $tarssh_threads
+		    -l ${tarssh_listen} -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
+		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" ${threads}
 		;;
-	/*)
+	/*) # absolute path
 		/usr/sbin/daemon -p "${pidfile}" -c -o "${tarssh_log}" \
 		    "${procname}" -v --disable-log-level \
-		    -l "${tarssh_listen}" -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
-		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" $tarssh_threads
+		    -l ${tarssh_listen} -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
+		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" ${threads}
 		;;
-	[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]|[Oo][Ff][Ff]|0)
+	[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]|[Oo][Ff][Ff]|0) # no logging
 		/usr/sbin/daemon -p "${pidfile}" -c -f \
 		    "${procname}" \
-		    -l "${tarssh_listen}" -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
-		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" $tarssh_threads
+		    -l ${tarssh_listen} -c "${tarssh_max_clients}" -d "${tarssh_delay}" \
+		    -u "${tarssh_daemon_user}" --chroot "${tarssh_daemon_chroot}" ${threads}
 		;;
 	*)
-		warn "\$tarssh_log is not set properly (one of 'syslog', '/file/path' or 'Off')"
+		warn "\$tarssh_log is not set properly (one of 'SYSLOG', an absolute path, or 'NO')"
 		return 1
 		;;
 	esac
