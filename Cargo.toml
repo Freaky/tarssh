@@ -23,7 +23,14 @@ futures-util = "0.3.4"
 log = "0.4.8"
 structopt = "0.3.11"
 tokio = { version = "0.2.13", features = ["signal", "sync", "net", "time", "tcp", "io-driver", "io-util", "rt-threaded"] }
+slog = "2.5.2"
+slog-async = "2.4.0"
+slog-term = "2.5.0"
+slog-json = "2.3.0"
 
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { version = "0.2", optional = true }
 privdrop = { version = "0.3.4", optional = true }
+
+[profile.release]
+debug = false
