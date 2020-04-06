@@ -27,6 +27,7 @@ slog = "2.5.2"
 slog-async = "2.4.0"
 slog-term = "2.5.0"
 slog-json = "2.3.0"
+quit = "1.0.0"
 
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { version = "0.2", optional = true }

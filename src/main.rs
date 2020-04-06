@@ -4,7 +4,6 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use std::process::exit;
 
 use exitcode;
 use futures::stream::StreamExt;
@@ -130,6 +129,7 @@ async fn tarpit_connection(
     }
 }
 
+#[quit::main]
 fn main() {
     let opt = Config::from_args();
 
@@ -174,7 +174,7 @@ fn main() {
         .build()
         .unwrap_or_else(|err| {
             crit!(log, "tokio"; "error" => %err);
-            exit(exitcode::UNAVAILABLE);
+            quit::with_code(exitcode::UNAVAILABLE);
         });
 
     let startup = Instant::now();
@@ -190,7 +190,7 @@ fn main() {
                 }
                 Err(err) => {
                     crit!(log, "listen"; "addr" => addr, "error" => %err);
-                    exit(exitcode::OSERR);
+                    quit::with_code(exitcode::OSERR);
                 }
             },
         )
@@ -221,7 +221,7 @@ fn main() {
             pd.apply()
                 .unwrap_or_else(|err| {
                     crit!(log, "privdrop"; "error" => %err);
-                    exit(exitcode::OSERR);
+                    quit::with_code(exitcode::OSERR);
                 });
 
             info!(log, "privdrop"; "enabled" => true);
@@ -282,7 +282,7 @@ fn main() {
         #[cfg(unix)]
         let mut term = signal(SignalKind::terminate()).unwrap_or_else(|error| {
             crit!(log, "signal()"; "error" => %error);
-            exit(exitcode::UNAVAILABLE);
+            quit::with_code(exitcode::UNAVAILABLE);
         });
         #[cfg(unix)]
         let term2 = term.recv().into_stream().map(|_| "term");
