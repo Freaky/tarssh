@@ -20,7 +20,7 @@ startup = nil
 
 ARGF.each_line do |line|
   prefix, data = line.split('] ', 2)
-  ts = Time.iso8601(prefix[/\d+\S+/])
+  ts = Time.iso8601(prefix[/\d+\S+/]) rescue next
   case data
   when /^start,/
     clients.clear
