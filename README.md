@@ -1,5 +1,4 @@
 [![Cargo](https://img.shields.io/crates/v/tarssh.svg)][crate]
-[![Docker](https://img.shields.io/docker/automated/freeky/tarssh.svg)][docker-image]
 
 # tarssh
 
@@ -28,7 +27,7 @@ that's one less free connection for the next attack.
 ```console
 -% cargo install tarssh
 -% tarssh --help
-tarssh 0.4.0
+tarssh 0.5.0
 A SSH tarpit server
 
 USAGE:
@@ -55,7 +54,7 @@ OPTIONS:
 
 
 -% tarssh -v --disable-log-timestamps -l 0.0.0.0:2222 \[::]:2222
-[INFO  tarssh] init, version: 0.4.0, scheduler: basic
+[INFO  tarssh] init, version: 0.5.0, scheduler: basic
 [INFO  tarssh] listen, addr: 0.0.0.0:2222
 [INFO  tarssh] listen, addr: [::]:2222
 [INFO  tarssh] privdrop, enabled: false
@@ -69,26 +68,7 @@ OPTIONS:
 [INFO  tarssh] shutdown, uptime: 71.50s, clients: 0
 ```
 
-A dubiously-maintained Docker image is available as [`freeky/tarssh`][docker-image].
-
-```console
--% sudo docker run --network=host freeky/tarssh
-Unable to find image 'freeky/tarssh:latest' locally
-latest: Pulling from freeky/tarssh
-27833a3ba0a5: Pull complete 
-1fbf3b23257c: Pull complete 
-30379a92040a: Pull complete 
-Digest: sha256:a1eccb7dd694753e0d6ea682f5feed2e17dcfc88d817714502b518c381b94298
-Status: Downloaded newer image for freeky/tarssh:latest
-[2019-04-10T23:02:57Z INFO  tarssh] listen, addr: 0.0.0.0:22
-[2019-04-10T23:02:57Z INFO  tarssh] privdrop, chroot: /var/empty
-[2019-04-10T23:02:57Z INFO  tarssh] privdrop, user: nobody
-[2019-04-10T23:02:57Z INFO  tarssh] privdrop, enabled: true
-[2019-04-10T23:02:57Z INFO  tarssh] start, servers: 1, max_clients: 4096, delay: 10s, timeout: 30s
-```
-
 [Tokio]: https://tokio.rs
 [rusty-sandbox]: https://github.com/myfreeweb/rusty-sandbox
 [privdrop]: https://crates.io/crates/privdrop
 [crate]: https://crates.io/crates/tarssh
-[docker-image]: https://hub.docker.com/r/freeky/tarssh
