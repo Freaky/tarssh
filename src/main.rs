@@ -14,7 +14,7 @@ use log::{error, info, warn};
 use structopt;
 use structopt::StructOpt;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::time::{sleep, timeout};
 
 #[cfg(unix)]
@@ -103,20 +103,12 @@ fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
 }
 
 async fn tarpit_connection(
-    mut sock: tokio::net::TcpStream,
+    mut sock: TcpStream,
     peer: SocketAddr,
     delay: Duration,
     time_out: Duration,
 ) {
     let start = Instant::now();
-    // These have been moved to a pre-TcpStream TcpSocket type
-    /*
-    sock.set_recv_buffer_size(1)
-        .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
-
-    sock.set_send_buffer_size(16)
-        .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
-    */
 
     for chunk in BANNER.iter().cycle() {
         sleep(delay).await;
@@ -137,6 +129,22 @@ async fn tarpit_connection(
             break;
         }
     }
+}
+
+async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
+    let sock = match addr {
+        SocketAddr::V4(_) => TcpSocket::new_v4()?,
+        SocketAddr::V6(_) => TcpSocket::new_v6()?,
+    };
+
+    sock.set_recv_buffer_size(1)
+        .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
+    sock.set_send_buffer_size(16)
+        .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
+
+    sock.set_reuseaddr(true)?;
+    sock.bind(addr)?;
+    sock.listen(1024)
 }
 
 fn main() {
@@ -198,7 +206,7 @@ fn main() {
         .listen
         .iter()
         .map(
-            |addr| match rt.block_on(async { TcpListener::bind(addr).await }) {
+            |addr| match rt.block_on(async { listen_socket(*addr).await }) {
                 Ok(listener) => {
                     info!("listen, addr: {}", addr);
                     listener
