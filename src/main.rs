@@ -14,8 +14,8 @@ use log::{error, info, warn};
 use structopt;
 use structopt::StructOpt;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpListener;
-use tokio::time::{delay_for, timeout};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::time::{sleep, timeout};
 
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
@@ -103,20 +103,15 @@ fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
 }
 
 async fn tarpit_connection(
-    mut sock: tokio::net::TcpStream,
+    mut sock: TcpStream,
     peer: SocketAddr,
     delay: Duration,
     time_out: Duration,
 ) {
     let start = Instant::now();
-    sock.set_recv_buffer_size(1)
-        .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
-
-    sock.set_send_buffer_size(16)
-        .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
 
     for chunk in BANNER.iter().cycle() {
-        delay_for(delay).await;
+        sleep(delay).await;
 
         let res = timeout(time_out, sock.write_all(chunk.as_bytes()))
             .await
@@ -134,6 +129,22 @@ async fn tarpit_connection(
             break;
         }
     }
+}
+
+async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
+    let sock = match addr {
+        SocketAddr::V4(_) => TcpSocket::new_v4()?,
+        SocketAddr::V6(_) => TcpSocket::new_v6()?,
+    };
+
+    sock.set_recv_buffer_size(1)
+        .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
+    sock.set_send_buffer_size(16)
+        .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
+
+    sock.set_reuseaddr(true)?;
+    sock.bind(addr)?;
+    sock.listen(1024)
 }
 
 fn main() {
@@ -160,23 +171,23 @@ fn main() {
         .format_level(!opt.disable_log_level)
         .init();
 
-    let mut rt = tokio::runtime::Builder::new();
     let mut scheduler;
 
-    if let Some(threaded) = opt.threads {
-        rt.threaded_scheduler();
+    let mut rt = if let Some(threaded) = opt.threads {
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
 
         scheduler = "threaded".to_string();
 
         if let Some(threads) = threaded {
             let threads = threads.min(512).max(1);
-            rt.core_threads(threads);
+            builder.worker_threads(threads).max_threads(threads);
             scheduler = format!("threaded, threads: {}", threads);
         }
+        builder
     } else {
         scheduler = "basic".to_string();
-        rt.basic_scheduler();
-    }
+        tokio::runtime::Builder::new_current_thread()
+    };
 
     info!(
         "init, version: {}, scheduler: {}",
@@ -184,7 +195,7 @@ fn main() {
         scheduler
     );
 
-    let mut rt = rt
+    let rt = rt
         .enable_all()
         .build()
         .unwrap_or_else(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)));
@@ -195,7 +206,7 @@ fn main() {
         .listen
         .iter()
         .map(
-            |addr| match rt.block_on(async { TcpListener::bind(addr).await }) {
+            |addr| match rt.block_on(async { listen_socket(*addr).await }) {
                 Ok(listener) => {
                     info!("listen, addr: {}", addr);
                     listener
@@ -255,7 +266,7 @@ fn main() {
         timeout.as_secs()
     );
 
-    for mut listener in listeners {
+    for listener in listeners {
         let server = async move {
             loop {
                 match listener.accept().await {
@@ -277,7 +288,7 @@ fn main() {
                         _ => {
                             let wait = Duration::from_millis(100);
                             warn!("accept, err: {}, wait: {:?}", err, wait);
-                            delay_for(wait).await;
+                            sleep(wait).await;
                         }
                     },
                 }
