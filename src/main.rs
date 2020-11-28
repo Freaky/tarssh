@@ -205,20 +205,18 @@ fn main() {
     let listeners: Vec<_> = opt
         .listen
         .iter()
-        .map(
-            |addr| match rt.block_on(listen_socket(*addr)) {
-                Ok(listener) => {
-                    info!("listen, addr: {}", addr);
-                    listener
-                }
-                Err(err) => {
-                    errx(
-                        exitcode::OSERR,
-                        format!("listen, addr: {}, error: {}", addr, err),
-                    );
-                }
-            },
-        )
+        .map(|addr| match rt.block_on(listen_socket(*addr)) {
+            Ok(listener) => {
+                info!("listen, addr: {}", addr);
+                listener
+            }
+            Err(err) => {
+                errx(
+                    exitcode::OSERR,
+                    format!("listen, addr: {}, error: {}", addr, err),
+                );
+            }
+        })
         .collect();
 
     #[cfg(all(unix, feature = "drop_privs"))]
