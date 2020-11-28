@@ -206,7 +206,7 @@ fn main() {
         .listen
         .iter()
         .map(
-            |addr| match rt.block_on(async { listen_socket(*addr).await }) {
+            |addr| match rt.block_on(listen_socket(*addr)) {
                 Ok(listener) => {
                     info!("listen, addr: {}", addr);
                     listener
