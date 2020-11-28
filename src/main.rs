@@ -5,13 +5,10 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use env_logger;
-use exitcode;
 use futures::stream::StreamExt;
 use futures_util::future::FutureExt;
 use log::LevelFilter;
 use log::{error, info, warn};
-use structopt;
 use structopt::StructOpt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
