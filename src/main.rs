@@ -2,17 +2,18 @@
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
-use futures::stream::StreamExt;
+use futures::stream::{SelectAll, StreamExt};
 use futures_util::future::FutureExt;
+use intrusive_collections::intrusive_adapter;
+use intrusive_collections::{LinkedList, LinkedListLink};
 use log::LevelFilter;
 use log::{error, info, warn};
 use structopt::StructOpt;
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
@@ -29,19 +30,13 @@ use std::path::PathBuf;
 #[cfg(all(unix, feature = "drop_privs"))]
 use std::ffi::OsString;
 
-static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
-static BANNER: &[&str] = &[
-    "My name is Yon",
-    " Yonson\r\nI liv",
-    "e in Wisconsin",
-    ".\r\nThere, the ",
-    "people I meet\r",
-    "\nAs I walk dow",
-    "n the street\r\n",
-    "Say \"Hey, what",
-    "'s your name?\"",
-    "\r\nAnd I say:\r\n",
-];
+static BANNER: &[u8] =
+    "My name is Yon Yonson\r\n\
+    I live in Wisconsin\r\n\
+    There, the people I meet\r\n\
+    As I walk down the street\r\n\
+    Say \"Hey, what's your name\"\r\n\
+    And I say:\r\n".as_bytes();
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "tarssh", about = "A SSH tarpit server")]
@@ -54,17 +49,13 @@ struct Config {
     max_clients: u32,
     /// Seconds between responses
     #[structopt(short = "d", long = "delay", default_value = "10")]
-    delay: u64,
+    delay: u16,
     /// Socket write timeout
     #[structopt(short = "t", long = "timeout", default_value = "30")]
-    timeout: u64,
+    timeout: u16,
     /// Verbose level (repeat for more verbosity)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
-    /// Use threads, with optional thread count
-    #[structopt(long = "threads")]
-    #[allow(clippy::option_option)]
-    threads: Option<Option<usize>>,
     /// Disable timestamps in logs
     #[structopt(long)]
     disable_log_timestamps: bool,
@@ -94,38 +85,21 @@ struct PrivDropConfig {
     chroot: Option<PathBuf>,
 }
 
+#[derive(Debug)]
+struct Connection {
+    link: LinkedListLink, // 16b - could consider XorLinkedList
+    sock: TcpStream,  // 40b, includes a local address in an Option with the fd :(
+    peer: SocketAddr, // 32b, could shave it down: NonZero u32/u128 enum + u16 port = 18b
+    start: Instant,      // 16b, this could just be a u32 seconds or something
+    pos: Cell<u8>,          // 1b, current position within the banner buffer
+    failed: Cell<u8>,       // 1b, number of concurrent times try_write has failed
+} // 96 bytes, apparently potential for 70
+
+intrusive_adapter!(ConnectionAdapter = Box<Connection>: Connection { link: LinkedListLink });
+
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
     std::process::exit(code);
-}
-
-async fn tarpit_connection(
-    mut sock: TcpStream,
-    peer: SocketAddr,
-    delay: Duration,
-    time_out: Duration,
-) {
-    let start = Instant::now();
-
-    for chunk in BANNER.iter().cycle() {
-        sleep(delay).await;
-
-        let res = timeout(time_out, sock.write_all(chunk.as_bytes()))
-            .await
-            .unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::Other, "timed out")));
-
-        if let Err(err) = res {
-            let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
-            info!(
-                "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
-                peer,
-                start.elapsed(),
-                err,
-                connected
-            );
-            break;
-        }
-    }
 }
 
 async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
@@ -136,10 +110,20 @@ async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
 
     sock.set_recv_buffer_size(1)
         .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
-    sock.set_send_buffer_size(16)
+    sock.set_send_buffer_size(1)
         .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
 
+    // From mio:
+    // On platforms with Berkeley-derived sockets, this allows to quickly
+    // rebind a socket, without needing to wait for the OS to clean up the
+    // previous one.
+    //
+    // On Windows, this allows rebinding sockets which are actively in use,
+    // which allows “socket hijacking”, so we explicitly don't set it here.
+    // https://docs.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse
+    #[cfg(not(windows))]
     sock.set_reuseaddr(true)?;
+
     sock.bind(addr)?;
     sock.listen(1024)
 }
@@ -148,8 +132,8 @@ fn main() {
     let opt = Config::from_args();
 
     let max_clients = opt.max_clients as usize;
-    let delay = Duration::from_secs(opt.delay);
-    let timeout = Duration::from_secs(opt.timeout);
+    let delay = Duration::from_secs(opt.delay as u64);
+    let timeout = Duration::from_secs(opt.timeout as u64);
     let log_level = match opt.verbose {
         0 => LevelFilter::Off,
         1 => LevelFilter::Info,
@@ -168,38 +152,19 @@ fn main() {
         .format_level(!opt.disable_log_level)
         .init();
 
-    let mut scheduler;
-
-    let mut rt = if let Some(threaded) = opt.threads {
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-
-        scheduler = "threaded".to_string();
-
-        if let Some(threads) = threaded {
-            let threads = threads.min(512).max(1);
-            builder.worker_threads(threads).max_threads(threads);
-            scheduler = format!("threaded, threads: {}", threads);
-        }
-        builder
-    } else {
-        scheduler = "basic".to_string();
-        tokio::runtime::Builder::new_current_thread()
-    };
-
     info!(
-        "init, version: {}, scheduler: {}",
-        env!("CARGO_PKG_VERSION"),
-        scheduler
+        "init, version: {}",
+        env!("CARGO_PKG_VERSION")
     );
 
-    let rt = rt
+    let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap_or_else(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)));
 
     let startup = Instant::now();
 
-    let listeners: Vec<_> = opt
+    let mut listeners = opt
         .listen
         .iter()
         .map(|addr| match rt.block_on(listen_socket(*addr)) {
@@ -214,7 +179,7 @@ fn main() {
                 );
             }
         })
-        .collect();
+        .collect::<SelectAll<_>>();
 
     #[cfg(all(unix, feature = "drop_privs"))]
     {
@@ -261,60 +226,120 @@ fn main() {
         timeout.as_secs()
     );
 
-    for listener in listeners {
-        let server = async move {
-            loop {
-                match listener.accept().await {
-                    Ok((sock, peer)) => {
-                        let connected = NUM_CLIENTS.fetch_add(1, Ordering::Relaxed) + 1;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<&'static str>();
+    rt.spawn(await_shutdown(shutdown_tx));
 
-                        if connected > max_clients {
-                            NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
-                            info!("reject, peer: {}, clients: {}", peer, connected);
-                        } else {
-                            info!("connect, peer: {}, clients: {}", peer, connected);
-                            tokio::spawn(tarpit_connection(sock, peer, delay, timeout));
+    let mut connections = LinkedList::new(ConnectionAdapter::new());
+    let server = async move {
+        let mut shutdown_rx = shutdown_rx.into_stream();
+        let mut tock = tokio::time::interval(delay);
+        let mut num_clients = 0;
+
+        loop {
+            tokio::select! {
+                Some(Ok(signal)) = shutdown_rx.next() => {
+                    info!("{}", signal);
+                    info!(
+                        "shutdown, uptime: {:.2?}, clients: {}",
+                        startup.elapsed(),
+                        num_clients
+                    );
+                    break;
+                }
+                _now = tock.tick() => {
+                    let mut cursor = connections.front_mut();
+                    while let Some(ref mut connection) = cursor.get() {
+                        let pos = connection.pos.get() as usize;
+                        match connection.sock.try_write(&BANNER[pos..pos+1]) {
+                            Ok(_n) => {
+                                connection.pos.set((pos as u8 + 1) % BANNER.len() as u8);
+                                connection.failed.set(0);
+                            },
+                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                let failed = connection.failed.get() + 1;
+                                connection.failed.set(failed);
+                                if delay * failed as u32 >= timeout {
+                                    num_clients -= 1;
+                                    info!(
+                                        "disconnect, peer: {}, duration: {:.2?}, error: \"Timed out\", clients: {}",
+                                        connection.peer,
+                                        connection.start.elapsed(),
+                                        num_clients
+                                    );
+                                    cursor.remove();
+                                }
+                            },
+                            Err(e) => {
+                                num_clients -= 1;
+                                info!(
+                                    "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
+                                    connection.peer,
+                                    connection.start.elapsed(),
+                                    e,
+                                    num_clients
+                                );
+                                cursor.remove();
+                            }
                         }
+
+                        cursor.move_next();
                     }
-                    Err(err) => match err.kind() {
-                        std::io::ErrorKind::ConnectionRefused
-                        | std::io::ErrorKind::ConnectionAborted
-                        | std::io::ErrorKind::ConnectionReset => (),
-                        _ => {
-                            let wait = Duration::from_millis(100);
-                            warn!("accept, err: {}, wait: {:?}", err, wait);
-                            sleep(wait).await;
+                }
+                Some(client) = listeners.next(), if num_clients < max_clients => {
+                    match client {
+                        Ok(sock) => {
+                            let peer = match sock.peer_addr() {
+                                Ok(peer) => peer,
+                                Err(e) => {
+                                    warn!("reject, peer: unknown, error: {:?}", e);
+                                    continue;
+                                }
+                            };
+                            num_clients += 1;
+
+                            info!("connect, peer: {}, clients: {}", peer, num_clients);
+                            let connection = Box::new(Connection {
+                                link: LinkedListLink::new(),
+                                sock,
+                                peer,
+                                start: Instant::now(),
+                                pos: Cell::new(0),
+                                failed: Cell::new(0),
+                            });
+                            connections.push_back(connection);
                         }
-                    },
+                        Err(err) => match err.kind() {
+                            std::io::ErrorKind::ConnectionRefused
+                            | std::io::ErrorKind::ConnectionAborted
+                            | std::io::ErrorKind::ConnectionReset => (),
+                            _ => {
+                                let wait = Duration::from_millis(100);
+                                warn!("accept, err: {}, wait: {:?}", err, wait);
+                                sleep(wait).await;
+                            }
+                        },
+                    }
                 }
             }
-        };
-
-        rt.spawn(server);
-    }
-
-    let shutdown = async {
-        let interrupt = tokio::signal::ctrl_c().into_stream().map(|_| "interrupt");
-
-        #[cfg(unix)]
-        let mut term = signal(SignalKind::terminate()).unwrap_or_else(|error| {
-            errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
-        });
-        #[cfg(unix)]
-        let term2 = term.recv().into_stream().map(|_| "terminated");
-        #[cfg(unix)]
-        let interrupt = futures_util::stream::select(interrupt, term2);
-
-        if let Some(signal) = interrupt.boxed().next().await {
-            info!("{}", signal);
-        };
+        }
     };
 
-    rt.block_on(shutdown);
+    rt.block_on(server);
+}
 
-    info!(
-        "shutdown, uptime: {:.2?}, clients: {}",
-        startup.elapsed(),
-        NUM_CLIENTS.load(Ordering::Relaxed)
-    )
+async fn await_shutdown(tx: tokio::sync::oneshot::Sender<&'static str>) {
+    let interrupt = tokio::signal::ctrl_c().into_stream().map(|_| "interrupt");
+
+    #[cfg(unix)]
+    let mut term = signal(SignalKind::terminate()).unwrap_or_else(|error| {
+        errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
+    });
+    #[cfg(unix)]
+    let term2 = term.recv().into_stream().map(|_| "terminated");
+    #[cfg(unix)]
+    let interrupt = futures_util::stream::select(interrupt, term2);
+
+    if let Some(signal) = interrupt.boxed().next().await {
+        let _ = tx.send(signal);
+    };
 }
