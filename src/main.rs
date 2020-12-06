@@ -44,7 +44,7 @@ struct Config {
     listen: Vec<SocketAddr>,
     /// Best-effort connection limit
     #[structopt(short = "c", long = "max-clients", default_value = "4096")]
-    max_clients: u32,
+    max_clients: std::num::NonZeroU32,
     /// Seconds between responses
     #[structopt(short = "d", long = "delay", default_value = "10")]
     delay: std::num::NonZeroU16,
@@ -127,7 +127,7 @@ async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
 async fn main() {
     let opt = Config::from_args();
 
-    let max_clients = opt.max_clients as usize;
+    let max_clients = u32::from(opt.max_clients) as usize;
     let delay = Duration::from_secs(u16::from(opt.delay) as u64);
     let timeout = Duration::from_secs(opt.timeout as u64);
     let log_level = match opt.verbose {
