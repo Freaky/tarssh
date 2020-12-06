@@ -83,14 +83,46 @@ struct PrivDropConfig {
     chroot: Option<PathBuf>,
 }
 
+/// A tiny type for tracking approximate Durations from a known starting point
+/// Wraps every 13.6 years, precision of 1 decisecond (100ms)
+#[derive(Copy, Clone)]
+struct Elapsed(u32);
+
+impl From<Instant> for Elapsed {
+    fn from(start: Instant) -> Self {
+        let duration = start.elapsed();
+        Self(duration.as_secs() as u32 * 10 + (duration.subsec_millis() as f32 / 100.0) as u32)
+    }
+}
+
+impl From<Elapsed> for Duration {
+    fn from(elapsed: Elapsed) -> Self {
+        Duration::from_millis(elapsed.0 as u64 * 100)
+    }
+}
+
+impl Elapsed {
+    fn elapsed(&self, start: Instant) -> Duration {
+        start.elapsed() - Duration::from(*self)
+    }
+}
+
+use std::fmt;
+
+impl fmt::Debug for Elapsed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Duration::from(*self).fmt(f)
+    }
+}
+
 #[derive(Debug)]
 struct Connection {
-    sock: TcpStream,  // 40b, includes a local address in an Option with the fd :(
+    sock: TcpStream,  // 24b
     peer: SocketAddr, // 32b, could shave it down: NonZero u32/u128 enum + u16 port = 18b
-    start: Instant,   // 16b, this could just be a u32 seconds or something
+    start: Elapsed,   // 4b, a decisecond duration since the daemon epoch
     pos: u8,          // 1b, current position within the banner buffer
     failed: u8,       // 1b, number of concurrent times try_write has failed
-} // 96 bytes, apparently potential for 70
+} // 64 bytes
 
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
@@ -246,10 +278,10 @@ async fn main() {
                 last_tick = tick;
                 slots[tick].retain_mut(|mut connection| {
                     let pos = connection.pos as usize;
-                    let slice = &BANNER[pos..=pos+BANNER[pos..].iter().position(|b| *b == b'\n').unwrap()];
+                    let slice = &BANNER[pos..=pos+BANNER[pos..].iter().position(|b| *b == b'\n').unwrap_or(BANNER.len())];
                     match connection.sock.try_write(slice) {
                         Ok(n) => {
-                            let pos = pos + n % BANNER.len();
+                            let pos = (pos + n) % BANNER.len();
                             connection.pos = pos as u8;
                             connection.failed = 0;
                             return true;
@@ -262,7 +294,7 @@ async fn main() {
                                 info!(
                                     "disconnect, peer: {}, duration: {:.2?}, error: \"Timed out\", clients: {}",
                                     connection.peer,
-                                    connection.start.elapsed(),
+                                    connection.start.elapsed(startup),
                                     num_clients
                                 );
                             }
@@ -272,7 +304,7 @@ async fn main() {
                             info!(
                                 "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
                                 connection.peer,
-                                connection.start.elapsed(),
+                                connection.start.elapsed(startup),
                                 e,
                                 num_clients
                             );
@@ -298,7 +330,7 @@ async fn main() {
                         let connection = Connection {
                             sock,
                             peer,
-                            start: Instant::now(),
+                            start: startup.into(),
                             pos: 0,
                             failed: 0,
                         };
