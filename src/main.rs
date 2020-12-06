@@ -7,8 +7,6 @@ use std::time::{Duration, Instant};
 
 use futures::stream::{SelectAll, StreamExt};
 use futures_util::future::FutureExt;
-use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{LinkedList, LinkedListLink};
 use log::LevelFilter;
 use log::{error, info, warn};
 use structopt::StructOpt;
@@ -87,15 +85,12 @@ struct PrivDropConfig {
 
 #[derive(Debug)]
 struct Connection {
-    link: LinkedListLink, // 16b - could consider XorLinkedList
     sock: TcpStream,  // 40b, includes a local address in an Option with the fd :(
     peer: SocketAddr, // 32b, could shave it down: NonZero u32/u128 enum + u16 port = 18b
-    start: Instant,      // 16b, this could just be a u32 seconds or something
+    start: Instant,   // 16b, this could just be a u32 seconds or something
     pos: Cell<u8>,          // 1b, current position within the banner buffer
     failed: Cell<u8>,       // 1b, number of concurrent times try_write has failed
 } // 96 bytes, apparently potential for 70
-
-intrusive_adapter!(ConnectionAdapter = Box<Connection>: Connection { link: LinkedListLink });
 
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
@@ -229,7 +224,7 @@ fn main() {
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<&'static str>();
     rt.spawn(await_shutdown(shutdown_tx));
 
-    let mut connections = LinkedList::new(ConnectionAdapter::new());
+    let mut connections: Vec<Connection> = Vec::with_capacity(opt.max_clients as usize);
     let server = async move {
         let mut shutdown_rx = shutdown_rx.into_stream();
         let mut tock = tokio::time::interval(delay);
@@ -247,13 +242,13 @@ fn main() {
                     break;
                 }
                 _now = tock.tick() => {
-                    let mut cursor = connections.front_mut();
-                    while let Some(ref mut connection) = cursor.get() {
+                    connections.retain(|connection| {
                         let pos = connection.pos.get() as usize;
                         match connection.sock.try_write(&BANNER[pos..pos+1]) {
                             Ok(_n) => {
                                 connection.pos.set((pos as u8 + 1) % BANNER.len() as u8);
                                 connection.failed.set(0);
+                                return true;
                             },
                             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                                 let failed = connection.failed.get() + 1;
@@ -266,7 +261,6 @@ fn main() {
                                         connection.start.elapsed(),
                                         num_clients
                                     );
-                                    cursor.remove();
                                 }
                             },
                             Err(e) => {
@@ -278,12 +272,11 @@ fn main() {
                                     e,
                                     num_clients
                                 );
-                                cursor.remove();
                             }
                         }
 
-                        cursor.move_next();
-                    }
+                        false
+                    });
                 }
                 Some(client) = listeners.next(), if num_clients < max_clients => {
                     match client {
@@ -298,15 +291,14 @@ fn main() {
                             num_clients += 1;
 
                             info!("connect, peer: {}, clients: {}", peer, num_clients);
-                            let connection = Box::new(Connection {
-                                link: LinkedListLink::new(),
+                            let connection = Connection {
                                 sock,
                                 peer,
                                 start: Instant::now(),
                                 pos: Cell::new(0),
                                 failed: Cell::new(0),
-                            });
-                            connections.push_back(connection);
+                            };
+                            connections.push(connection);
                         }
                         Err(err) => match err.kind() {
                             std::io::ErrorKind::ConnectionRefused
