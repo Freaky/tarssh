@@ -105,7 +105,7 @@ async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
 
     sock.set_recv_buffer_size(1)
         .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
-    sock.set_send_buffer_size(1)
+    sock.set_send_buffer_size(32)
         .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
 
     // From mio:
@@ -246,9 +246,11 @@ async fn main() {
                 last_tick = tick;
                 slots[tick].retain_mut(|mut connection| {
                     let pos = connection.pos as usize;
-                    match connection.sock.try_write(&BANNER[pos..pos+1]) {
-                        Ok(_) => {
-                            connection.pos = (pos as u8 + 1) % BANNER.len() as u8;
+                    let slice = &BANNER[pos..=pos+BANNER[pos..].iter().position(|b| *b == b'\n').unwrap()];
+                    match connection.sock.try_write(slice) {
+                        Ok(n) => {
+                            let pos = pos + n % BANNER.len();
+                            connection.pos = pos as u8;
                             connection.failed = 0;
                             return true;
                         },
