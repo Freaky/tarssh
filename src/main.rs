@@ -14,7 +14,10 @@ use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::time::sleep;
 
 mod elapsed;
-use elapsed::Elapsed;
+mod peer_addr;
+
+use crate::elapsed::Elapsed;
+use crate::peer_addr::PeerAddr;
 
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
@@ -86,15 +89,14 @@ struct PrivDropConfig {
     chroot: Option<PathBuf>,
 }
 
-
 #[derive(Debug)]
 struct Connection {
     sock: TcpStream,  // 24b
-    peer: SocketAddr, // 32b, could shave it down: NonZero u32/u128 enum + u16 port = 18b
-    start: Elapsed,   // 4b, a decisecond duration since the daemon epoch
+    peer: PeerAddr,   // 18b, down from 32b
+    start: Elapsed,   // 4b, a decisecond duration since the daemon epoch, down from 16b
     pos: u8,          // 1b, current position within the banner buffer
     failed: u8,       // 1b, number of concurrent times try_write has failed
-} // 64 bytes
+} // 48 bytes
 
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
@@ -301,7 +303,7 @@ async fn main() {
                         info!("connect, peer: {}, clients: {}", peer, num_clients);
                         let connection = Connection {
                             sock,
-                            peer,
+                            peer: peer.into(),
                             start: startup.into(),
                             pos: 0,
                             failed: 0,
