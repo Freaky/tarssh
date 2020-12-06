@@ -47,7 +47,7 @@ struct Config {
     max_clients: u32,
     /// Seconds between responses
     #[structopt(short = "d", long = "delay", default_value = "10")]
-    delay: u16,
+    delay: std::num::NonZeroU16,
     /// Socket write timeout
     #[structopt(short = "t", long = "timeout", default_value = "30")]
     timeout: u16,
@@ -128,7 +128,7 @@ async fn main() {
     let opt = Config::from_args();
 
     let max_clients = opt.max_clients as usize;
-    let delay = Duration::from_secs(opt.delay as u64);
+    let delay = Duration::from_secs(u16::from(opt.delay) as u64);
     let timeout = Duration::from_secs(opt.timeout as u64);
     let log_level = match opt.verbose {
         0 => LevelFilter::Off,
@@ -216,12 +216,20 @@ async fn main() {
     );
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<&'static str>();
+    let mut shutdown_rx = shutdown_rx.into_stream();
     tokio::spawn(await_shutdown(shutdown_tx));
 
-    let mut connections: Vec<Connection> = Vec::with_capacity(opt.max_clients as usize);
-    let mut shutdown_rx = shutdown_rx.into_stream();
-    let mut tock = tokio::time::interval(delay);
     let mut num_clients = 0;
+    let max_tick = delay.as_secs() as usize;
+    let mut last_tick = 0;
+
+    let mut slots: Vec<Vec<Connection>> = Vec::with_capacity(max_tick);
+    for _ in 0..max_tick {
+        slots.push(vec![]);
+    }
+
+    let timer = tokio::time::interval(Duration::from_secs(1));
+    let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
 
     loop {
         tokio::select! {
@@ -234,11 +242,12 @@ async fn main() {
                 );
                 break;
             }
-            _now = tock.tick() => {
-                connections.retain_mut(|mut connection| {
+            Some((tick, _)) = ticker.next() => {
+                last_tick = tick;
+                slots[tick].retain_mut(|mut connection| {
                     let pos = connection.pos as usize;
                     match connection.sock.try_write(&BANNER[pos..pos+1]) {
-                        Ok(_n) => {
+                        Ok(_) => {
                             connection.pos = (pos as u8 + 1) % BANNER.len() as u8;
                             connection.failed = 0;
                             return true;
@@ -290,7 +299,7 @@ async fn main() {
                             pos: 0,
                             failed: 0,
                         };
-                        connections.push(connection);
+                        slots[last_tick].push(connection);
                     }
                     Err(err) => match err.kind() {
                         std::io::ErrorKind::ConnectionRefused
