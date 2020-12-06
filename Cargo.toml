@@ -23,6 +23,7 @@ futures-util = "0.3.4"
 log = "0.4.8"
 structopt = "0.3.11"
 tokio = { version = "0.3", features = ["io-util", "macros", "net", "rt", "signal", "stream", "sync", "time"] }
+retain_mut = "0.1.1"
 
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { version = "0.2", optional = true }

@@ -2,9 +2,9 @@
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
 
 use std::net::SocketAddr;
-use std::cell::Cell;
 use std::time::{Duration, Instant};
 
+use retain_mut::RetainMut;
 use futures::stream::{SelectAll, StreamExt};
 use futures_util::future::FutureExt;
 use log::LevelFilter;
@@ -88,8 +88,8 @@ struct Connection {
     sock: TcpStream,  // 40b, includes a local address in an Option with the fd :(
     peer: SocketAddr, // 32b, could shave it down: NonZero u32/u128 enum + u16 port = 18b
     start: Instant,   // 16b, this could just be a u32 seconds or something
-    pos: Cell<u8>,          // 1b, current position within the banner buffer
-    failed: Cell<u8>,       // 1b, number of concurrent times try_write has failed
+    pos: u8,          // 1b, current position within the banner buffer
+    failed: u8,       // 1b, number of concurrent times try_write has failed
 } // 96 bytes, apparently potential for 70
 
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
@@ -242,18 +242,17 @@ fn main() {
                     break;
                 }
                 _now = tock.tick() => {
-                    connections.retain(|connection| {
-                        let pos = connection.pos.get() as usize;
+                    connections.retain_mut(|mut connection| {
+                        let pos = connection.pos as usize;
                         match connection.sock.try_write(&BANNER[pos..pos+1]) {
                             Ok(_n) => {
-                                connection.pos.set((pos as u8 + 1) % BANNER.len() as u8);
-                                connection.failed.set(0);
+                                connection.pos = (pos as u8 + 1) % BANNER.len() as u8;
+                                connection.failed = 0;
                                 return true;
                             },
                             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                                let failed = connection.failed.get() + 1;
-                                connection.failed.set(failed);
-                                if delay * failed as u32 >= timeout {
+                                connection.failed += 1;
+                                if delay * connection.failed as u32 >= timeout {
                                     num_clients -= 1;
                                     info!(
                                         "disconnect, peer: {}, duration: {:.2?}, error: \"Timed out\", clients: {}",
@@ -295,8 +294,8 @@ fn main() {
                                 sock,
                                 peer,
                                 start: Instant::now(),
-                                pos: Cell::new(0),
-                                failed: Cell::new(0),
+                                pos: 0,
+                                failed: 0,
                             };
                             connections.push(connection);
                         }
