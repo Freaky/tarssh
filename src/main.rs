@@ -4,11 +4,11 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use retain_mut::RetainMut;
-use futures::stream::{SelectAll, StreamExt};
+use futures::stream::{self, SelectAll, StreamExt};
 use futures_util::future::FutureExt;
 use log::LevelFilter;
 use log::{error, info, warn};
+use retain_mut::RetainMut;
 use structopt::StructOpt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::time::sleep;
@@ -28,13 +28,13 @@ use std::path::PathBuf;
 #[cfg(all(unix, feature = "drop_privs"))]
 use std::ffi::OsString;
 
-static BANNER: &[u8] =
-    "My name is Yon Yonson\r\n\
+static BANNER: &[u8] = "My name is Yon Yonson\r\n\
     I live in Wisconsin\r\n\
     There, the people I meet\r\n\
     As I walk down the street\r\n\
     Say \"Hey, what's your name\"\r\n\
-    And I say:\r\n".as_bytes();
+    And I say:\r\n"
+    .as_bytes();
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "tarssh", about = "A SSH tarpit server")]
@@ -123,7 +123,8 @@ async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
     sock.listen(1024)
 }
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     let opt = Config::from_args();
 
     let max_clients = opt.max_clients as usize;
@@ -147,34 +148,27 @@ fn main() {
         .format_level(!opt.disable_log_level)
         .init();
 
-    info!(
-        "init, version: {}",
-        env!("CARGO_PKG_VERSION")
-    );
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)));
+    info!("init, version: {}", env!("CARGO_PKG_VERSION"));
 
     let startup = Instant::now();
 
-    let mut listeners = opt
-        .listen
-        .iter()
-        .map(|addr| match rt.block_on(listen_socket(*addr)) {
-            Ok(listener) => {
-                info!("listen, addr: {}", addr);
-                listener
-            }
-            Err(err) => {
-                errx(
-                    exitcode::OSERR,
-                    format!("listen, addr: {}, error: {}", addr, err),
-                );
+    let mut listeners = stream::iter(opt.listen.iter())
+        .then(|addr| async move {
+            match listen_socket(*addr).await {
+                Ok(listener) => {
+                    info!("listen, addr: {}", addr);
+                    listener
+                }
+                Err(err) => {
+                    errx(
+                        exitcode::OSERR,
+                        format!("listen, addr: {}, error: {}", addr, err),
+                    );
+                }
             }
         })
-        .collect::<SelectAll<_>>();
+        .collect::<SelectAll<_>>()
+        .await;
 
     #[cfg(all(unix, feature = "drop_privs"))]
     {
@@ -222,109 +216,104 @@ fn main() {
     );
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<&'static str>();
-    rt.spawn(await_shutdown(shutdown_tx));
+    tokio::spawn(await_shutdown(shutdown_tx));
 
     let mut connections: Vec<Connection> = Vec::with_capacity(opt.max_clients as usize);
-    let server = async move {
-        let mut shutdown_rx = shutdown_rx.into_stream();
-        let mut tock = tokio::time::interval(delay);
-        let mut num_clients = 0;
+    let mut shutdown_rx = shutdown_rx.into_stream();
+    let mut tock = tokio::time::interval(delay);
+    let mut num_clients = 0;
 
-        loop {
-            tokio::select! {
-                Some(Ok(signal)) = shutdown_rx.next() => {
-                    info!("{}", signal);
-                    info!(
-                        "shutdown, uptime: {:.2?}, clients: {}",
-                        startup.elapsed(),
-                        num_clients
-                    );
-                    break;
-                }
-                _now = tock.tick() => {
-                    connections.retain_mut(|mut connection| {
-                        let pos = connection.pos as usize;
-                        match connection.sock.try_write(&BANNER[pos..pos+1]) {
-                            Ok(_n) => {
-                                connection.pos = (pos as u8 + 1) % BANNER.len() as u8;
-                                connection.failed = 0;
-                                return true;
-                            },
-                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                                connection.failed += 1;
-                                if delay * connection.failed as u32 >= timeout {
-                                    num_clients -= 1;
-                                    info!(
-                                        "disconnect, peer: {}, duration: {:.2?}, error: \"Timed out\", clients: {}",
-                                        connection.peer,
-                                        connection.start.elapsed(),
-                                        num_clients
-                                    );
-                                }
-                            },
-                            Err(e) => {
+    loop {
+        tokio::select! {
+            Some(Ok(signal)) = shutdown_rx.next() => {
+                info!("{}", signal);
+                info!(
+                    "shutdown, uptime: {:.2?}, clients: {}",
+                    startup.elapsed(),
+                    num_clients
+                );
+                break;
+            }
+            _now = tock.tick() => {
+                connections.retain_mut(|mut connection| {
+                    let pos = connection.pos as usize;
+                    match connection.sock.try_write(&BANNER[pos..pos+1]) {
+                        Ok(_n) => {
+                            connection.pos = (pos as u8 + 1) % BANNER.len() as u8;
+                            connection.failed = 0;
+                            return true;
+                        },
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            connection.failed += 1;
+                            if delay * connection.failed as u32 >= timeout {
                                 num_clients -= 1;
                                 info!(
-                                    "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
+                                    "disconnect, peer: {}, duration: {:.2?}, error: \"Timed out\", clients: {}",
                                     connection.peer,
                                     connection.start.elapsed(),
-                                    e,
                                     num_clients
                                 );
                             }
-                        }
-
-                        false
-                    });
-                }
-                Some(client) = listeners.next(), if num_clients < max_clients => {
-                    match client {
-                        Ok(sock) => {
-                            let peer = match sock.peer_addr() {
-                                Ok(peer) => peer,
-                                Err(e) => {
-                                    warn!("reject, peer: unknown, error: {:?}", e);
-                                    continue;
-                                }
-                            };
-                            num_clients += 1;
-
-                            info!("connect, peer: {}, clients: {}", peer, num_clients);
-                            let connection = Connection {
-                                sock,
-                                peer,
-                                start: Instant::now(),
-                                pos: 0,
-                                failed: 0,
-                            };
-                            connections.push(connection);
-                        }
-                        Err(err) => match err.kind() {
-                            std::io::ErrorKind::ConnectionRefused
-                            | std::io::ErrorKind::ConnectionAborted
-                            | std::io::ErrorKind::ConnectionReset => (),
-                            _ => {
-                                let wait = Duration::from_millis(100);
-                                warn!("accept, err: {}, wait: {:?}", err, wait);
-                                sleep(wait).await;
-                            }
                         },
+                        Err(e) => {
+                            num_clients -= 1;
+                            info!(
+                                "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
+                                connection.peer,
+                                connection.start.elapsed(),
+                                e,
+                                num_clients
+                            );
+                        }
                     }
+
+                    false
+                });
+            }
+            Some(client) = listeners.next(), if num_clients < max_clients => {
+                match client {
+                    Ok(sock) => {
+                        let peer = match sock.peer_addr() {
+                            Ok(peer) => peer,
+                            Err(e) => {
+                                warn!("reject, peer: unknown, error: {:?}", e);
+                                continue;
+                            }
+                        };
+                        num_clients += 1;
+
+                        info!("connect, peer: {}, clients: {}", peer, num_clients);
+                        let connection = Connection {
+                            sock,
+                            peer,
+                            start: Instant::now(),
+                            pos: 0,
+                            failed: 0,
+                        };
+                        connections.push(connection);
+                    }
+                    Err(err) => match err.kind() {
+                        std::io::ErrorKind::ConnectionRefused
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::ConnectionReset => (),
+                        _ => {
+                            let wait = Duration::from_millis(100);
+                            warn!("accept, err: {}, wait: {:?}", err, wait);
+                            sleep(wait).await;
+                        }
+                    },
                 }
             }
         }
-    };
-
-    rt.block_on(server);
+    }
 }
 
 async fn await_shutdown(tx: tokio::sync::oneshot::Sender<&'static str>) {
     let interrupt = tokio::signal::ctrl_c().into_stream().map(|_| "interrupt");
 
     #[cfg(unix)]
-    let mut term = signal(SignalKind::terminate()).unwrap_or_else(|error| {
-        errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
-    });
+    let mut term = signal(SignalKind::terminate())
+        .unwrap_or_else(|error| errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error)));
     #[cfg(unix)]
     let term2 = term.recv().into_stream().map(|_| "terminated");
     #[cfg(unix)]
