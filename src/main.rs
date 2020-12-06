@@ -252,6 +252,7 @@ async fn main() {
                             connection.failed = 0;
                             return true;
                         },
+                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {},
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                             connection.failed += 1;
                             if delay * connection.failed as u32 >= timeout {
