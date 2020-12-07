@@ -243,15 +243,15 @@ async fn main() {
     loop {
         tokio::select! {
             Some(signal) = signals.next() => {
-                info!("signal, kind: {}", signal);
                 let action = match signal {
                     "INFO" | "HUP" => "info",
                     _ => "shutdown",
                 };
                 info!(
-                    "{}, pid: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
+                    "{}, pid: {}, signal: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
                     action,
                     std::process::id(),
+                    signal,
                     startup.elapsed(),
                     num_clients,
                     total_clients,
