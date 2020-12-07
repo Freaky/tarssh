@@ -91,11 +91,11 @@ struct PrivDropConfig {
 
 #[derive(Debug)]
 struct Connection {
-    sock: TcpStream,  // 24b
-    peer: PeerAddr,   // 18b, down from 32b
-    start: Elapsed,   // 4b, a decisecond duration since the daemon epoch, down from 16b
-    pos: u8,          // 1b, current position within the banner buffer
-    failed: u8,       // 1b, number of concurrent times try_write has failed
+    sock: TcpStream, // 24b
+    peer: PeerAddr,  // 18b, down from 32b
+    start: Elapsed,  // 4b, a decisecond duration since the daemon epoch, down from 16b
+    pos: u8,         // 1b, current position within the banner buffer
+    failed: u8,      // 1b, number of concurrent times try_write has failed
 } // 48 bytes
 
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
@@ -225,14 +225,14 @@ async fn main() {
     let mut shutdown_rx = shutdown_rx.into_stream();
     tokio::spawn(await_shutdown(shutdown_tx));
 
-    let mut num_clients = 0;
     let max_tick = delay.as_secs() as usize;
     let mut last_tick = 0;
+    let mut num_clients = 0;
 
-    let mut slots: Vec<Vec<Connection>> = Vec::with_capacity(max_tick);
-    for _ in 0..max_tick {
-        slots.push(vec![]);
-    }
+    let mut slots: Box<[Vec<Connection>]> = std::iter::repeat_with(Vec::new)
+        .take(max_tick)
+        .collect::<Vec<Vec<_>>>()
+        .into_boxed_slice();
 
     let timer = tokio::time::interval(Duration::from_secs(1));
     let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
