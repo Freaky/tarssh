@@ -2,20 +2,21 @@
 #![cfg_attr(feature = "nightly", doc(include = "../README.md"))]
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use futures::stream::StreamExt;
-use futures_util::future::FutureExt;
+use futures::stream::{self, SelectAll, StreamExt};
 use log::LevelFilter;
 use log::{error, info, warn};
+use retain_mut::RetainMut;
 use structopt::StructOpt;
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 
-#[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
+mod elapsed;
+mod peer_addr;
+
+use crate::elapsed::Elapsed;
+use crate::peer_addr::PeerAddr;
 
 #[cfg(all(unix, feature = "sandbox"))]
 use rusty_sandbox::Sandbox;
@@ -29,19 +30,16 @@ use std::path::PathBuf;
 #[cfg(all(unix, feature = "drop_privs"))]
 use std::ffi::OsString;
 
-static NUM_CLIENTS: AtomicUsize = AtomicUsize::new(0);
-static BANNER: &[&str] = &[
-    "My name is Yon",
-    " Yonson\r\nI liv",
-    "e in Wisconsin",
-    ".\r\nThere, the ",
-    "people I meet\r",
-    "\nAs I walk dow",
-    "n the street\r\n",
-    "Say \"Hey, what",
-    "'s your name?\"",
-    "\r\nAnd I say:\r\n",
-];
+static BANNER: &[u8] = "My name is Yon Yonson,\r\n\
+    I live in Wisconsin.\r\n\
+    I work in a lumber yard there.\r\n\
+    The people I meet as\r\n\
+    I walk down the street,\r\n\
+    They say \"Hello!\"\r\n\
+    I say \"Hello!\"\r\n\
+    They say \"What's your name.\"\r\n\
+    I say: "
+    .as_bytes();
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "tarssh", about = "A SSH tarpit server")]
@@ -51,20 +49,16 @@ struct Config {
     listen: Vec<SocketAddr>,
     /// Best-effort connection limit
     #[structopt(short = "c", long = "max-clients", default_value = "4096")]
-    max_clients: u32,
+    max_clients: std::num::NonZeroU32,
     /// Seconds between responses
     #[structopt(short = "d", long = "delay", default_value = "10")]
-    delay: u64,
+    delay: std::num::NonZeroU16,
     /// Socket write timeout
     #[structopt(short = "t", long = "timeout", default_value = "30")]
-    timeout: u64,
+    timeout: u16,
     /// Verbose level (repeat for more verbosity)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
-    /// Use threads, with optional thread count
-    #[structopt(long = "threads")]
-    #[allow(clippy::option_option)]
-    threads: Option<Option<usize>>,
     /// Disable timestamps in logs
     #[structopt(long)]
     disable_log_timestamps: bool,
@@ -94,38 +88,18 @@ struct PrivDropConfig {
     chroot: Option<PathBuf>,
 }
 
+#[derive(Debug)]
+struct Connection {
+    sock: TcpStream, // 24b
+    peer: PeerAddr,  // 18b, down from 32b
+    start: Elapsed,  // 4b, a decisecond duration since the daemon epoch, down from 16b
+    bytes: u64,      // 8b, bytes written
+    failed: u16,     // 2b, writes failed on WOULDBLOCK
+} // 56 bytes
+
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
     std::process::exit(code);
-}
-
-async fn tarpit_connection(
-    mut sock: TcpStream,
-    peer: SocketAddr,
-    delay: Duration,
-    time_out: Duration,
-) {
-    let start = Instant::now();
-
-    for chunk in BANNER.iter().cycle() {
-        sleep(delay).await;
-
-        let res = timeout(time_out, sock.write_all(chunk.as_bytes()))
-            .await
-            .unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::Other, "timed out")));
-
-        if let Err(err) = res {
-            let connected = NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed) - 1;
-            info!(
-                "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
-                peer,
-                start.elapsed(),
-                err,
-                connected
-            );
-            break;
-        }
-    }
 }
 
 async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
@@ -136,20 +110,31 @@ async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
 
     sock.set_recv_buffer_size(1)
         .unwrap_or_else(|err| warn!("set_recv_buffer_size(), error: {}", err));
-    sock.set_send_buffer_size(16)
+    sock.set_send_buffer_size(32)
         .unwrap_or_else(|err| warn!("set_send_buffer_size(), error: {}", err));
 
+    // From mio:
+    // On platforms with Berkeley-derived sockets, this allows to quickly
+    // rebind a socket, without needing to wait for the OS to clean up the
+    // previous one.
+    //
+    // On Windows, this allows rebinding sockets which are actively in use,
+    // which allows “socket hijacking”, so we explicitly don't set it here.
+    // https://docs.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse
+    #[cfg(not(windows))]
     sock.set_reuseaddr(true)?;
+
     sock.bind(addr)?;
     sock.listen(1024)
 }
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     let opt = Config::from_args();
 
-    let max_clients = opt.max_clients as usize;
-    let delay = Duration::from_secs(opt.delay);
-    let timeout = Duration::from_secs(opt.timeout);
+    let max_clients = u32::from(opt.max_clients) as usize;
+    let delay = Duration::from_secs(u16::from(opt.delay) as u64);
+    let timeout = Duration::from_secs(opt.timeout as u64);
     let log_level = match opt.verbose {
         0 => LevelFilter::Off,
         1 => LevelFilter::Info,
@@ -168,53 +153,31 @@ fn main() {
         .format_level(!opt.disable_log_level)
         .init();
 
-    let mut scheduler;
-
-    let mut rt = if let Some(threaded) = opt.threads {
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-
-        scheduler = "threaded".to_string();
-
-        if let Some(threads) = threaded {
-            let threads = threads.min(512).max(1);
-            builder.worker_threads(threads).max_threads(threads);
-            scheduler = format!("threaded, threads: {}", threads);
-        }
-        builder
-    } else {
-        scheduler = "basic".to_string();
-        tokio::runtime::Builder::new_current_thread()
-    };
-
     info!(
-        "init, version: {}, scheduler: {}",
-        env!("CARGO_PKG_VERSION"),
-        scheduler
+        "init, pid: {}, version: {}",
+        std::process::id(),
+        env!("CARGO_PKG_VERSION")
     );
-
-    let rt = rt
-        .enable_all()
-        .build()
-        .unwrap_or_else(|err| errx(exitcode::UNAVAILABLE, format!("tokio, error: {:?}", err)));
 
     let startup = Instant::now();
 
-    let listeners: Vec<_> = opt
-        .listen
-        .iter()
-        .map(|addr| match rt.block_on(listen_socket(*addr)) {
-            Ok(listener) => {
-                info!("listen, addr: {}", addr);
-                listener
-            }
-            Err(err) => {
-                errx(
-                    exitcode::OSERR,
-                    format!("listen, addr: {}, error: {}", addr, err),
-                );
+    let mut listeners = stream::iter(opt.listen.iter())
+        .then(|addr| async move {
+            match listen_socket(*addr).await {
+                Ok(listener) => {
+                    info!("listen, addr: {}", addr);
+                    listener
+                }
+                Err(err) => {
+                    errx(
+                        exitcode::OSERR,
+                        format!("listen, addr: {}, error: {}", addr, err),
+                    );
+                }
             }
         })
-        .collect();
+        .collect::<SelectAll<_>>()
+        .await;
 
     #[cfg(all(unix, feature = "drop_privs"))]
     {
@@ -261,20 +224,101 @@ fn main() {
         timeout.as_secs()
     );
 
-    for listener in listeners {
-        let server = async move {
-            loop {
-                match listener.accept().await {
-                    Ok((sock, peer)) => {
-                        let connected = NUM_CLIENTS.fetch_add(1, Ordering::Relaxed) + 1;
+    let max_tick = delay.as_secs() as usize;
+    let mut last_tick = 0;
+    let mut num_clients = 0;
+    let mut total_clients: u64 = 0;
+    let mut bytes: u64 = 0;
 
-                        if connected > max_clients {
-                            NUM_CLIENTS.fetch_sub(1, Ordering::Relaxed);
-                            info!("reject, peer: {}, clients: {}", peer, connected);
-                        } else {
-                            info!("connect, peer: {}, clients: {}", peer, connected);
-                            tokio::spawn(tarpit_connection(sock, peer, delay, timeout));
+    let mut slots: Box<[Vec<Connection>]> = std::iter::repeat_with(Vec::new)
+        .take(max_tick)
+        .collect::<Vec<Vec<_>>>()
+        .into_boxed_slice();
+
+    let timer = tokio::time::interval(Duration::from_secs(1));
+    let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
+
+    let mut signals = signal_stream();
+
+    loop {
+        tokio::select! {
+            Some(signal) = signals.next() => {
+                let action = match signal {
+                    "INFO" | "HUP" => "info",
+                    _ => "shutdown",
+                };
+                info!(
+                    "{}, pid: {}, signal: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
+                    action,
+                    std::process::id(),
+                    signal,
+                    startup.elapsed(),
+                    num_clients,
+                    total_clients,
+                    bytes
+                );
+                if action != "info" {
+                    break;
+                }
+            }
+            Some((tick, _)) = ticker.next() => {
+                last_tick = tick;
+                slots[tick].retain_mut(|connection| {
+                    let pos = &BANNER[connection.bytes as usize % BANNER.len()..];
+                    let slice = &pos[..=pos.iter().position(|b| *b == b'\n').unwrap_or(pos.len() - 1)];
+                    match connection.sock.try_write(slice) {
+                        Ok(n) => {
+                            bytes += n as u64;
+                            connection.bytes += n as u64;
+                            connection.failed = 0;
+                            return true;
+                        },
+                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {},
+                        Err(mut e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                connection.failed += 1;
+                                if delay * (connection.failed as u32) < timeout {
+                                    return true;
+                                }
+                                e = std::io::Error::new(std::io::ErrorKind::Other, "Timed Out");
+                            }
+                            num_clients -= 1;
+                            info!(
+                                "disconnect, peer: {}, duration: {:.2?}, bytes: {}, error: \"{}\", clients: {}",
+                                connection.peer,
+                                connection.start.elapsed(startup),
+                                connection.bytes,
+                                e,
+                                num_clients
+                            );
                         }
+                    }
+
+                    false
+                });
+            }
+            Some(client) = listeners.next(), if num_clients < max_clients => {
+                match client {
+                    Ok(sock) => {
+                        let peer = match sock.peer_addr() {
+                            Ok(peer) => peer,
+                            Err(e) => {
+                                warn!("reject, peer: unknown, error: {:?}", e);
+                                continue;
+                            }
+                        };
+                        num_clients += 1;
+                        total_clients += 1;
+
+                        info!("connect, peer: {}, clients: {}", peer, num_clients);
+                        let connection = Connection {
+                            sock,
+                            peer: peer.into(),
+                            start: startup.into(),
+                            bytes: 0,
+                            failed: 0,
+                        };
+                        slots[last_tick].push(connection);
                     }
                     Err(err) => match err.kind() {
                         std::io::ErrorKind::ConnectionRefused
@@ -288,33 +332,33 @@ fn main() {
                     },
                 }
             }
-        };
+        }
+    }
+}
 
-        rt.spawn(server);
+fn signal_stream() -> impl futures::stream::Stream<Item = &'static str> + 'static {
+    #[cfg(not(unix))]
+    {
+        use futures_util::future::FutureExt;
+        tokio::signal::ctrl_c().map(|_| "INT").into_stream().boxed()
     }
 
-    let shutdown = async {
-        let interrupt = tokio::signal::ctrl_c().into_stream().map(|_| "interrupt");
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
 
-        #[cfg(unix)]
-        let mut term = signal(SignalKind::terminate()).unwrap_or_else(|error| {
-            errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error))
-        });
-        #[cfg(unix)]
-        let term2 = term.recv().into_stream().map(|_| "terminated");
-        #[cfg(unix)]
-        let interrupt = futures_util::stream::select(interrupt, term2);
-
-        if let Some(signal) = interrupt.boxed().next().await {
-            info!("{}", signal);
-        };
-    };
-
-    rt.block_on(shutdown);
-
-    info!(
-        "shutdown, uptime: {:.2?}, clients: {}",
-        startup.elapsed(),
-        NUM_CLIENTS.load(Ordering::Relaxed)
-    )
+        futures::stream::select_all(vec![
+            #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+            signal(SignalKind::info()).unwrap().map(|_| "INFO").boxed(),
+            signal(SignalKind::hangup()).unwrap().map(|_| "HUP").boxed(),
+            signal(SignalKind::terminate())
+                .unwrap()
+                .map(|_| "TERM")
+                .boxed(),
+            signal(SignalKind::interrupt())
+                .unwrap()
+                .map(|_| "INT")
+                .boxed(),
+        ])
+    }
 }
