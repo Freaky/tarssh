@@ -90,9 +90,9 @@ struct Connection {
     sock: TcpStream, // 24b
     peer: PeerAddr,  // 18b, down from 32b
     start: Elapsed,  // 4b, a decisecond duration since the daemon epoch, down from 16b
-    pos: u8,         // 1b, current position within the banner buffer
-    failed: u8,      // 1b, number of concurrent times try_write has failed
-} // 48 bytes
+    bytes: u64,      // 8b, bytes written
+    failed: u16,     // 2b, writes failed on WOULDBLOCK
+} // 56 bytes
 
 fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     error!("{}", message.as_ref());
@@ -210,7 +210,8 @@ async fn main() {
     }
 
     info!(
-        "start, servers: {}, max_clients: {}, delay: {}s, timeout: {}s",
+        "start, pid: {}, servers: {}, max_clients: {}, delay: {}s, timeout: {}s",
+        std::process::id(),
         listeners.len(),
         opt.max_clients,
         delay.as_secs(),
@@ -220,6 +221,8 @@ async fn main() {
     let max_tick = delay.as_secs() as usize;
     let mut last_tick = 0;
     let mut num_clients = 0;
+    let mut total_clients: u64 = 0;
+    let mut bytes: u64 = 0;
 
     let mut slots: Box<[Vec<Connection>]> = std::iter::repeat_with(Vec::new)
         .take(max_tick)
@@ -230,49 +233,59 @@ async fn main() {
     let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
 
     let mut shutdown = shutdown_stream();
+    let mut info = info_stream();
 
     loop {
         tokio::select! {
-            Some(signal) = shutdown.next() => {
-                info!("{}", signal);
+            Some(_) = info.next() => {
                 info!(
-                    "shutdown, uptime: {:.2?}, clients: {}",
+                    "info, pid: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
+                    std::process::id(),
                     startup.elapsed(),
-                    num_clients
+                    num_clients,
+                    total_clients,
+                    bytes
+                );
+            }
+            Some(signal) = shutdown.next() => {
+                info!("signal, kind: {}", signal);
+                info!(
+                    "shutdown, pid: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
+                    std::process::id(),
+                    startup.elapsed(),
+                    num_clients,
+                    total_clients,
+                    bytes
                 );
                 break;
             }
             Some((tick, _)) = ticker.next() => {
                 last_tick = tick;
-                slots[tick].retain_mut(|mut connection| {
-                    let pos = connection.pos as usize;
+                slots[tick].retain_mut(|connection| {
+                    let pos = connection.bytes as usize % BANNER.len();
                     let slice = &BANNER[pos..=pos+BANNER[pos..].iter().position(|b| *b == b'\n').unwrap_or(BANNER.len())];
                     match connection.sock.try_write(slice) {
                         Ok(n) => {
-                            let pos = (pos + n) % BANNER.len();
-                            connection.pos = pos as u8;
+                            bytes += n as u64;
+                            connection.bytes += n as u64;
                             connection.failed = 0;
                             return true;
                         },
                         Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {},
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            connection.failed += 1;
-                            if delay * connection.failed as u32 >= timeout {
-                                num_clients -= 1;
-                                info!(
-                                    "disconnect, peer: {}, duration: {:.2?}, error: \"Timed out\", clients: {}",
-                                    connection.peer,
-                                    connection.start.elapsed(startup),
-                                    num_clients
-                                );
+                        Err(mut e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                connection.failed += 1;
+                                if delay * (connection.failed as u32) < timeout {
+                                    return true;
+                                }
+                                e = std::io::Error::new(std::io::ErrorKind::Other, "Timed Out");
                             }
-                        },
-                        Err(e) => {
                             num_clients -= 1;
                             info!(
-                                "disconnect, peer: {}, duration: {:.2?}, error: \"{}\", clients: {}",
+                                "disconnect, peer: {}, duration: {:.2?}, bytes: {}, error: \"{}\", clients: {}",
                                 connection.peer,
                                 connection.start.elapsed(startup),
+                                connection.bytes,
                                 e,
                                 num_clients
                             );
@@ -293,13 +306,14 @@ async fn main() {
                             }
                         };
                         num_clients += 1;
+                        total_clients += 1;
 
                         info!("connect, peer: {}, clients: {}", peer, num_clients);
                         let connection = Connection {
                             sock,
                             peer: peer.into(),
                             start: startup.into(),
-                            pos: 0,
+                            bytes: 0,
                             failed: 0,
                         };
                         slots[last_tick].push(connection);
@@ -317,6 +331,27 @@ async fn main() {
                 }
             }
         }
+    }
+}
+
+fn info_stream() -> impl futures::stream::Stream<Item = ()> + 'static {
+    #[cfg(not(unix))]
+    {
+        futures::stream::empty()
+    }
+
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        #[cfg(not(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd")))]
+        return signal(SignalKind::hangup()).unwrap();
+
+        #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+        stream::select(
+            signal(SignalKind::hangup()).unwrap(),
+            signal(SignalKind::info()).unwrap(),
+        )
     }
 }
 
