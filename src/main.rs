@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use futures::stream::{self, SelectAll, StreamExt};
-use futures_util::future::FutureExt;
 use log::LevelFilter;
 use log::{error, info, warn};
 use retain_mut::RetainMut;
@@ -18,9 +17,6 @@ mod peer_addr;
 
 use crate::elapsed::Elapsed;
 use crate::peer_addr::PeerAddr;
-
-#[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
 
 #[cfg(all(unix, feature = "sandbox"))]
 use rusty_sandbox::Sandbox;
@@ -221,10 +217,6 @@ async fn main() {
         timeout.as_secs()
     );
 
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<&'static str>();
-    let mut shutdown_rx = shutdown_rx.into_stream();
-    tokio::spawn(await_shutdown(shutdown_tx));
-
     let max_tick = delay.as_secs() as usize;
     let mut last_tick = 0;
     let mut num_clients = 0;
@@ -237,9 +229,11 @@ async fn main() {
     let timer = tokio::time::interval(Duration::from_secs(1));
     let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
 
+    let mut shutdown = shutdown_stream();
+
     loop {
         tokio::select! {
-            Some(Ok(signal)) = shutdown_rx.next() => {
+            Some(signal) = shutdown.next() => {
                 info!("{}", signal);
                 info!(
                     "shutdown, uptime: {:.2?}, clients: {}",
@@ -326,18 +320,19 @@ async fn main() {
     }
 }
 
-async fn await_shutdown(tx: tokio::sync::oneshot::Sender<&'static str>) {
-    let interrupt = tokio::signal::ctrl_c().into_stream().map(|_| "interrupt");
+fn shutdown_stream() -> impl futures::stream::Stream<Item = &'static str> + 'static {
+    #[cfg(not(unix))]
+    {
+        use futures_util::future::FutureExt;
+        tokio::signal::ctrl_c().map(|_| "interrupt").into_stream().boxed()
+    }
 
     #[cfg(unix)]
-    let mut term = signal(SignalKind::terminate())
-        .unwrap_or_else(|error| errx(exitcode::UNAVAILABLE, format!("signal(), error: {}", error)));
-    #[cfg(unix)]
-    let term2 = term.recv().into_stream().map(|_| "terminated");
-    #[cfg(unix)]
-    let interrupt = futures_util::stream::select(interrupt, term2);
-
-    if let Some(signal) = interrupt.boxed().next().await {
-        let _ = tx.send(signal);
-    };
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        stream::select(
+            signal(SignalKind::terminate()).unwrap().map(|_| "TERM"),
+            signal(SignalKind::interrupt()).unwrap().map(|_| "INT"),
+        )
+    }
 }
