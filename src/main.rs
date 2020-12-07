@@ -30,12 +30,15 @@ use std::path::PathBuf;
 #[cfg(all(unix, feature = "drop_privs"))]
 use std::ffi::OsString;
 
-static BANNER: &[u8] = "My name is Yon Yonson\r\n\
-    I live in Wisconsin\r\n\
-    There, the people I meet\r\n\
-    As I walk down the street\r\n\
-    Say \"Hey, what's your name\"\r\n\
-    And I say:\r\n"
+static BANNER: &[u8] = "My name is Yon Yonson,\r\n\
+    I live in Wisconsin.\r\n\
+    I work in a lumber yard there.\r\n\
+    The people I meet as\r\n\
+    I walk down the street,\r\n\
+    They say \"Hello!\"\r\n\
+    I say \"Hello!\"\r\n\
+    They say \"What's your name.\"\r\n\
+    I say: "
     .as_bytes();
 
 #[derive(Debug, StructOpt)]
@@ -265,8 +268,8 @@ async fn main() {
             Some((tick, _)) = ticker.next() => {
                 last_tick = tick;
                 slots[tick].retain_mut(|connection| {
-                    let pos = connection.bytes as usize % BANNER.len();
-                    let slice = &BANNER[pos..=pos+BANNER[pos..].iter().position(|b| *b == b'\n').unwrap_or(BANNER.len())];
+                    let pos = &BANNER[connection.bytes as usize % BANNER.len()..];
+                    let slice = &pos[..=pos.iter().position(|b| *b == b'\n').unwrap_or(pos.len() - 1)];
                     match connection.sock.try_write(slice) {
                         Ok(n) => {
                             bytes += n as u64;
