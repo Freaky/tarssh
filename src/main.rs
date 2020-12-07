@@ -150,7 +150,11 @@ async fn main() {
         .format_level(!opt.disable_log_level)
         .init();
 
-    info!("init, version: {}", env!("CARGO_PKG_VERSION"));
+    info!(
+        "init, pid: {}, version: {}",
+        std::process::id(),
+        env!("CARGO_PKG_VERSION")
+    );
 
     let startup = Instant::now();
 
@@ -210,8 +214,7 @@ async fn main() {
     }
 
     info!(
-        "start, pid: {}, servers: {}, max_clients: {}, delay: {}s, timeout: {}s",
-        std::process::id(),
+        "start, servers: {}, max_clients: {}, delay: {}s, timeout: {}s",
         listeners.len(),
         opt.max_clients,
         delay.as_secs(),
@@ -359,7 +362,10 @@ fn shutdown_stream() -> impl futures::stream::Stream<Item = &'static str> + 'sta
     #[cfg(not(unix))]
     {
         use futures_util::future::FutureExt;
-        tokio::signal::ctrl_c().map(|_| "interrupt").into_stream().boxed()
+        tokio::signal::ctrl_c()
+            .map(|_| "interrupt")
+            .into_stream()
+            .boxed()
     }
 
     #[cfg(unix)]
