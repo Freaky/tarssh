@@ -1,6 +1,5 @@
-
-use std::net::{SocketAddr, IpAddr, Ipv6Addr};
 use std::fmt;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 /// A compact representation of an IP and port pair
 #[derive(Debug, Clone, Copy)]
@@ -19,7 +18,7 @@ impl From<&SocketAddr> for PeerAddr {
 
         Self {
             ip,
-            port: peer.port()
+            port: peer.port(),
         }
     }
 }

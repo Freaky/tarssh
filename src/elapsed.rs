@@ -1,4 +1,3 @@
-
 use std::fmt;
 use std::time::{Duration, Instant};
 
@@ -25,7 +24,6 @@ impl Elapsed {
         start.elapsed() - Duration::from(*self)
     }
 }
-
 
 impl fmt::Debug for Elapsed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
