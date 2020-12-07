@@ -27,7 +27,7 @@ that's one less free connection for the next attack.
 ```console
 -% cargo install tarssh
 -% tarssh --help
-tarssh 0.5.0
+tarssh 0.6.0
 A SSH tarpit server
 
 USAGE:
@@ -47,25 +47,21 @@ OPTIONS:
     -g, --group <group>                Run as this group
     -l, --listen <listen>...           Listen address(es) to bind to [default: 0.0.0.0:2222]
     -c, --max-clients <max-clients>    Best-effort connection limit [default: 4096]
-        --threads <threads>            Use threads, with optional thread count
     -t, --timeout <timeout>            Socket write timeout [default: 30]
     -u, --user <user>                  Run as this user and their primary group
 
-
-
--% tarssh -v --disable-log-timestamps -l 0.0.0.0:2222 \[::]:2222
-[INFO  tarssh] init, version: 0.5.0, scheduler: basic
-[INFO  tarssh] listen, addr: 0.0.0.0:2222
-[INFO  tarssh] listen, addr: [::]:2222
-[INFO  tarssh] privdrop, enabled: false
-[INFO  tarssh] sandbox, enabled: true
-[INFO  tarssh] start, servers: 2, max_clients: 4096, delay: 10s, timeout: 30s
-[INFO  tarssh] connect, peer: 127.0.0.1:39410, clients: 1
-[INFO  tarssh] connect, peer: 127.0.0.1:39424, clients: 2
-[INFO  tarssh] disconnect, peer: 127.0.0.1:39410, duration: 20.02s, error: "Broken pipe (os error 32)", clients: 1
-[INFO  tarssh] disconnect, peer: 127.0.0.1:39424, duration: 20.06s, error: "Broken pipe (os error 32)", clients: 0
-^C[INFO  tarssh] interrupt
-[INFO  tarssh] shutdown, uptime: 71.50s, clients: 0
+-% tarssh -v --disable-log-timestamps --disable-log-ident -l 0.0.0.0:2222 \[::]:2222
+[INFO ] init, pid: 90127, version: 0.6.0
+[INFO ] listen, addr: 0.0.0.0:2222
+[INFO ] listen, addr: [::]:2222
+[INFO ] privdrop, enabled: false
+[INFO ] sandbox, enabled: true
+[INFO ] start, servers: 2, max_clients: 4096, delay: 10s, timeout: 30s
+[INFO ] connect, peer: 127.0.0.1:20981, clients: 1
+[INFO ] connect, peer: 127.0.0.1:20984, clients: 2
+[INFO ] disconnect, peer: 127.0.0.1:20981, duration: 20.02s, bytes: 24, error: "Broken pipe (os error 32)", clients: 1
+[INFO ] disconnect, peer: 127.0.0.1:20984, duration: 19.14s, bytes: 24, error: "Broken pipe (os error 32)", clients: 0
+^C[INFO ] shutdown, pid: 90127, signal: INT, uptime: 25.01s, clients: 0, total: 2, bytes: 48
 ```
 
 [Tokio]: https://tokio.rs
