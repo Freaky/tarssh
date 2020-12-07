@@ -238,32 +238,28 @@ async fn main() {
     let timer = tokio::time::interval(Duration::from_secs(1));
     let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
 
-    let mut shutdown = shutdown_stream();
-    let mut info = info_stream();
+    let mut signals = signal_stream();
 
     loop {
         tokio::select! {
-            Some(_) = info.next() => {
-                info!(
-                    "info, pid: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
-                    std::process::id(),
-                    startup.elapsed(),
-                    num_clients,
-                    total_clients,
-                    bytes
-                );
-            }
-            Some(signal) = shutdown.next() => {
+            Some(signal) = signals.next() => {
                 info!("signal, kind: {}", signal);
+                let action = match signal {
+                    "INFO" | "HUP" => "info",
+                    _ => "shutdown",
+                };
                 info!(
-                    "shutdown, pid: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
+                    "{}, pid: {}, uptime: {:.2?}, clients: {}, total: {}, bytes: {}",
+                    action,
                     std::process::id(),
                     startup.elapsed(),
                     num_clients,
                     total_clients,
                     bytes
                 );
-                break;
+                if action != "info" {
+                    break;
+                }
             }
             Some((tick, _)) = ticker.next() => {
                 last_tick = tick;
@@ -340,43 +336,29 @@ async fn main() {
     }
 }
 
-fn info_stream() -> impl futures::stream::Stream<Item = ()> + 'static {
-    #[cfg(not(unix))]
-    {
-        futures::stream::empty()
-    }
-
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-
-        #[cfg(not(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd")))]
-        return signal(SignalKind::hangup()).unwrap();
-
-        #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
-        stream::select(
-            signal(SignalKind::hangup()).unwrap(),
-            signal(SignalKind::info()).unwrap(),
-        )
-    }
-}
-
-fn shutdown_stream() -> impl futures::stream::Stream<Item = &'static str> + 'static {
+fn signal_stream() -> impl futures::stream::Stream<Item = &'static str> + 'static {
     #[cfg(not(unix))]
     {
         use futures_util::future::FutureExt;
-        tokio::signal::ctrl_c()
-            .map(|_| "interrupt")
-            .into_stream()
-            .boxed()
+        tokio::signal::ctrl_c().map(|_| "INT").into_stream().boxed()
     }
 
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        stream::select(
-            signal(SignalKind::terminate()).unwrap().map(|_| "TERM"),
-            signal(SignalKind::interrupt()).unwrap().map(|_| "INT"),
-        )
+
+        futures::stream::select_all(vec![
+            #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+            signal(SignalKind::info()).unwrap().map(|_| "INFO").boxed(),
+            signal(SignalKind::hangup()).unwrap().map(|_| "HUP").boxed(),
+            signal(SignalKind::terminate())
+                .unwrap()
+                .map(|_| "TERM")
+                .boxed(),
+            signal(SignalKind::interrupt())
+                .unwrap()
+                .map(|_| "INT")
+                .boxed(),
+        ])
     }
 }
