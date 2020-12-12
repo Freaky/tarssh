@@ -30,7 +30,7 @@ use std::path::PathBuf;
 #[cfg(all(unix, feature = "drop_privs"))]
 use std::ffi::OsString;
 
-static BANNER: &[u8] = "My name is Yon Yonson,\r\n\
+static BANNER: &[u8] = b"My name is Yon Yonson,\r\n\
     I live in Wisconsin.\r\n\
     I work in a lumber yard there.\r\n\
     The people I meet as\r\n\
@@ -38,8 +38,7 @@ static BANNER: &[u8] = "My name is Yon Yonson,\r\n\
     They say \"Hello!\"\r\n\
     I say \"Hello!\"\r\n\
     They say \"What's your name.\"\r\n\
-    I say: "
-    .as_bytes();
+    I say: ";
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "tarssh", about = "A SSH tarpit server")]
