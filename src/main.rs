@@ -237,7 +237,6 @@ async fn main() {
 
     let timer = tokio::time::interval(Duration::from_secs(1));
     let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
-
     let mut signals = signal_stream();
 
     loop {
@@ -271,9 +270,9 @@ async fn main() {
                             bytes += n as u64;
                             connection.bytes += n as u64;
                             connection.failed = 0;
-                            return true;
+                            true
                         },
-                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {},
+                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => { true },
                         Err(mut e) => {
                             if e.kind() == std::io::ErrorKind::WouldBlock {
                                 connection.failed += 1;
@@ -291,10 +290,10 @@ async fn main() {
                                 e,
                                 num_clients
                             );
+
+                            false
                         }
                     }
-
-                    false
                 });
             }
             Some(client) = listeners.next(), if num_clients < max_clients => {
