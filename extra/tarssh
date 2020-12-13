@@ -35,7 +35,7 @@ rcvar="tarssh_enable"
 load_rc_config "${name}"
 
 pidfile="/var/run/${name}.pid"
-procname="/usr/local/bin/tarssh"
+procname="/usr/local/sbin/tarssh"
 command="/usr/sbin/daemon"
 start_cmd=start_cmd
 
