@@ -7,16 +7,17 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, SelectAll, StreamExt};
 use log::LevelFilter;
 use log::{error, info, warn};
-use retain_mut::RetainMut;
 use structopt::StructOpt;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::time::sleep;
 
 mod elapsed;
 mod peer_addr;
+mod retain_unordered;
 
 use crate::elapsed::Elapsed;
 use crate::peer_addr::PeerAddr;
+use crate::retain_unordered::RetainUnordered;
 
 #[cfg(all(unix, feature = "sandbox"))]
 use rusty_sandbox::Sandbox;
@@ -262,7 +263,7 @@ async fn main() {
             }
             Some((tick, _)) = ticker.next() => {
                 last_tick = tick;
-                slots[tick].retain_mut(|connection| {
+                slots[tick].retain_unordered(|connection| {
                     let pos = &BANNER[connection.bytes as usize % BANNER.len()..];
                     let slice = &pos[..=pos.iter().position(|b| *b == b'\n').unwrap_or(pos.len() - 1)];
                     match connection.sock.try_write(slice) {
