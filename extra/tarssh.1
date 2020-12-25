@@ -1,0 +1,89 @@
+.Dd December 14, 2020
+.Dt CHECKRESTART 1
+.Os
+.Sh NAME
+.Nm tarssh
+.Nd an SSH tarpit
+.Sh SYNOPSIS
+.Nm
+.Op Fl c | -max-clients Ar limit
+.Op Fl -chroot Ar directory
+.Op Fl d | -delay Ar seconds
+.Op Fl -disable-log-ident
+.Op Fl -disable-log-level
+.Op Fl -disable-log-timestamp
+.Op Fl g | -group Ar group
+.Op Fl h | -help
+.Op Fl l | -listen Ar address
+.Op Fl t | -timeout seconds
+.Op Fl u | -user Ar user
+.Op Fl V | -version
+.Op Fl v | -verbose
+.Sh DESCRIPTION
+.Nm
+is a daemon which indefinitely simulates the initial connection handshake of an
+SSH server, with the intention of trapping unwelcome clients in an endless loop.
+.Pp
+The following options are available:
+.Bl -tag -width indent
+.It Fl -chroot Ar directory
+.Xr chroot 2
+to the specificed directory on startup.
+This option requires root privileges.
+Note
+.Nm
+also supports automatic sandboxing using system-specific mechanisms such as
+.Xr capsicum 4
+which may also revoke arbitrary filesystem access.
+.It Fl d | -delay Ar seconds
+Delay each
+.Xr write 2
+by this many seconds.
+Each write attempts to send a single line of text.
+.It Fl -disable-log-ident
+.It Fl -disable-log-level
+.It Fl -disable-log-timestamp
+Suppress portions of log output.
+.It Fl g | -group Ar group
+Switch to the specified group name or gid after binding listen sockets.
+.It Fl l | -listen Ar address
+Listen on the specified sockets.
+Takes multiple arguments and may be provided
+more than once.
+.It Fl c | -max-clients Ar limit
+Limit connections to this many concurrent clients.
+.It Fl t | -timeout Ar seconds
+Disconnect clients after unsuccessful writes beyond this cutoff
+.It Fl u | -user Ar user
+Switch to the specified user name or uid after binding listen sockets.
+.It Fl h | -help
+Print help text.
+.It Fl V | -version
+Print version information.
+.It Fl v | -verbose
+Increase verbosity.
+May be specified more than once.
+No verbose flag logs only errors.
+.El
+.Pp
+All of these options can be set by the provided
+.Xr rc 8
+script for supported platforms.
+See %%PREFIX%%/etc/rc.d/tarssh for details.
+.Sh SEE ALSO
+.Xr chroot 2 ,
+.Xr rc.conf 5 ,
+.Xr sshd 8
+.Sh HISTORY
+.Nm
+was inspired by Endlessh by Christopher Wellons, documented in his blog post at
+https://nullprogram.com/blog/2019/03/22/
+.Sh AUTHORS
+.An Thomas Hurst Aq tom@hur.st
+.Sh BUGS
+Like Endlessh,
+.Nm
+only detects clients that have disconnected from
+.Xr write 2
+errors, meaning all clients, even those that disconnect instantly, are logged as
+being connected for at least one delay cycle.
