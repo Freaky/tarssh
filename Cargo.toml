@@ -27,3 +27,6 @@ tokio = { version = "0.3", features = ["io-util", "macros", "net", "rt", "signal
 [target."cfg(unix)".dependencies]
 rusty-sandbox = { version = "0.2", optional = true }
 privdrop = { version = "0.5", optional = true }
+
+[dev-dependencies]
+quickcheck = "1.0.1"

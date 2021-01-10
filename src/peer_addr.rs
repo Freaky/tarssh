@@ -52,3 +52,9 @@ impl fmt::Display for PeerAddr {
         SocketAddr::from(self).fmt(f)
     }
 }
+
+quickcheck::quickcheck! {
+    fn prop_peeraddr(addr: SocketAddr) -> bool {
+        SocketAddr::from(PeerAddr::from(addr)) == addr
+    }
+}

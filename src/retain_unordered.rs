@@ -26,22 +26,16 @@ impl<T> RetainUnordered<T> for Vec<T> {
     }
 }
 
-#[test]
-fn test_vec_retain_unordered() {
-    let tests = vec![
-        (vec![0, 1, 2, 3, 4, 5], vec![0, 2, 4]),
-        (vec![0, 2, 4, 6, 8], vec![0, 2, 4, 6, 8]),
-        (vec![1, 3, 5, 7, 9], vec![]),
-        (vec![0, 2], vec![0, 2]),
-        (vec![1, 3], vec![]),
-        (vec![0], vec![0]),
-        (vec![1], vec![]),
-        (vec![], vec![]),
-    ];
+quickcheck::quickcheck! {
+    fn prop_retain_unordered(test: Vec<u32>, cutoff: u32) -> bool {
+        let mut expected = test.clone();
+        expected.retain(|i| *i < cutoff);
+        expected.sort_unstable();
 
-    for (mut t, exp) in tests.into_iter() {
-        t.retain_unordered(|i| *i % 2 == 0);
-        t.sort_unstable();
-        assert_eq!(t, exp);
+        let mut test = test;
+        test.retain_unordered(|i| *i < cutoff);
+        test.sort_unstable();
+
+        test == expected
     }
 }
