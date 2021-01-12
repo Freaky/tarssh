@@ -8,8 +8,9 @@ use futures::stream::{self, SelectAll, StreamExt};
 use log::LevelFilter;
 use log::{error, info, warn};
 use structopt::StructOpt;
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::sleep;
+use tokio_stream::wrappers::{IntervalStream, TcpListenerStream};
 
 mod elapsed;
 mod peer_addr;
@@ -102,7 +103,7 @@ fn errx<M: AsRef<str>>(code: i32, message: M) -> ! {
     std::process::exit(code);
 }
 
-async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
+async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListenerStream> {
     let sock = match addr {
         SocketAddr::V4(_) => TcpSocket::new_v4()?,
         SocketAddr::V6(_) => TcpSocket::new_v6()?,
@@ -125,7 +126,7 @@ async fn listen_socket(addr: SocketAddr) -> std::io::Result<TcpListener> {
     sock.set_reuseaddr(true)?;
 
     sock.bind(addr)?;
-    sock.listen(1024)
+    sock.listen(1024).map(TcpListenerStream::new)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -235,7 +236,7 @@ async fn main() {
         .collect::<Vec<Vec<_>>>()
         .into_boxed_slice();
 
-    let timer = tokio::time::interval(Duration::from_secs(1));
+    let timer = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
     let mut ticker = stream::iter(0..max_tick).cycle().zip(timer);
     let mut signals = signal_stream();
 
@@ -335,29 +336,36 @@ async fn main() {
     }
 }
 
-fn signal_stream() -> impl futures::stream::Stream<Item = &'static str> + 'static {
+fn signal_stream() -> impl futures::Stream<Item = &'static str> + 'static {
     #[cfg(not(unix))]
     {
-        use futures_util::future::FutureExt;
-        tokio::signal::ctrl_c().map(|_| "INT").into_stream().boxed()
+        let sig = async_stream::stream! {
+            let _ = tokio::signal::ctrl_c().await;
+            yield "INT";
+        };
+        sig.boxed()
     }
 
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
 
+        fn unix_signal_stream(kind: SignalKind, tag: &str) -> impl futures::Stream<Item = &str> {
+            async_stream::stream! {
+                let mut sig = signal(kind).unwrap();
+
+                while let Some(()) = sig.recv().await {
+                    yield tag;
+                }
+            }
+        }
+
         futures::stream::select_all(vec![
             #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
-            signal(SignalKind::info()).unwrap().map(|_| "INFO").boxed(),
-            signal(SignalKind::hangup()).unwrap().map(|_| "HUP").boxed(),
-            signal(SignalKind::terminate())
-                .unwrap()
-                .map(|_| "TERM")
-                .boxed(),
-            signal(SignalKind::interrupt())
-                .unwrap()
-                .map(|_| "INT")
-                .boxed(),
+            unix_signal_stream(SignalKind::info(), "INFO").boxed(),
+            unix_signal_stream(SignalKind::hangup(), "HUP").boxed(),
+            unix_signal_stream(SignalKind::terminate(), "TERM").boxed(),
+            unix_signal_stream(SignalKind::interrupt(), "INT").boxed(),
         ])
     }
 }
