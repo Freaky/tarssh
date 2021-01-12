@@ -27,7 +27,7 @@ that's one less free connection for the next attack.
 ```console
 -% cargo install tarssh
 -% tarssh --help
-tarssh 0.6.0
+tarssh 0.7.0
 A SSH tarpit server
 
 USAGE:
@@ -51,7 +51,7 @@ OPTIONS:
     -u, --user <user>                  Run as this user and their primary group
 
 -% tarssh -v --disable-log-timestamps --disable-log-ident -l 0.0.0.0:2222 \[::]:2222
-[INFO ] init, pid: 27344, version: 0.6.0
+[INFO ] init, pid: 27344, version: 0.7.0
 [INFO ] listen, addr: 0.0.0.0:2222
 [INFO ] listen, addr: [::]:2222
 [INFO ] privdrop, enabled: false

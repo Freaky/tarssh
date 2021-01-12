@@ -1,6 +1,6 @@
 [package]
 name = "tarssh"
-version = "0.6.0"
+version = "0.7.0"
 description = "A simple SSH tarpit server"
 authors = ["Thomas Hurst <tom@hur.st>"]
 edition = "2018"
