@@ -53,6 +53,7 @@ impl fmt::Display for PeerAddr {
     }
 }
 
+#[cfg(test)]
 quickcheck::quickcheck! {
     fn prop_peeraddr(addr: SocketAddr) -> bool {
         SocketAddr::from(PeerAddr::from(addr)) == addr

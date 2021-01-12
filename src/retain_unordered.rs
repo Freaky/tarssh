@@ -26,6 +26,7 @@ impl<T> RetainUnordered<T> for Vec<T> {
     }
 }
 
+#[cfg(test)]
 quickcheck::quickcheck! {
     fn prop_retain_unordered(test: Vec<u32>, cutoff: u32) -> bool {
         let mut expected = test.clone();
