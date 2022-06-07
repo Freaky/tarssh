@@ -1,6 +1,6 @@
 [package]
 name = "tarssh"
-version = "0.7.0"
+version = "0.6.0"
 description = "A simple SSH tarpit server"
 authors = ["Thomas Hurst <tom@hur.st>"]
 edition = "2018"
@@ -8,7 +8,6 @@ license = "MIT"
 repository = "https://github.com/Freaky/tarssh"
 documentation  ="https://docs.rs/tarssh"
 keywords = ["ssh", "tarpit", "security", "server"]
-include = ["/Cargo.lock", "/Cargo.toml", "/README.md", "/LICENCE.txt", "/src/*"]
 readme = "README.md"
 
 [features]
@@ -17,7 +16,7 @@ sandbox = ["rusty-sandbox"]
 drop_privs = ["privdrop"]
 
 [dependencies]
-env_logger = "0.8"
+env_logger = "0.9"
 exitcode = "1.1"
 futures = "0.3"
 futures-util = "0.3"
