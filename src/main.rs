@@ -310,7 +310,6 @@ async fn main() {
                         num_clients += 1;
                         total_clients += 1;
 
-                        info!("connect, peer: {}, clients: {}", peer, num_clients);
                         let connection = Connection {
                             sock,
                             peer: peer.into(),
@@ -318,6 +317,7 @@ async fn main() {
                             bytes: 0,
                             failed: 0,
                         };
+                        info!("connect, peer: {}, clients: {}", connection.peer, num_clients);
                         slots[last_tick].push(connection);
                     }
                     Err(err) => match err.kind() {
